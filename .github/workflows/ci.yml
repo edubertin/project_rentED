@@ -31,6 +31,7 @@ jobs:
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/app
       PYTHONPATH: .
       UPLOAD_DIR: /tmp/rented_uploads
+      QUEUE_MODE: inline
 
     steps:
       - name: Checkout

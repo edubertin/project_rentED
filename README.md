@@ -1,7 +1,6 @@
 # rentED API
 
 ![CI](https://github.com/edubertin/project_rentED/actions/workflows/ci.yml/badge.svg)
-![Coverage](https://codecov.io/gh/edubertin/project_rentED/branch/main/graph/badge.svg)
 ![Release](https://img.shields.io/github/v/release/edubertin/project_rentED)
 ![License](https://img.shields.io/github/license/edubertin/project_rentED)
 

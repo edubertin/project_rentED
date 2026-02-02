@@ -58,6 +58,7 @@ export default function Home() {
         <Link href="/">Properties</Link>
         <Link href="/work-orders">Work Orders</Link>
         <Link href="/upload">Upload Document</Link>
+        <Link href="/review">Review</Link>
       </nav>
 
       <h1>Properties</h1>

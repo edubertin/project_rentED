@@ -1,4 +1,4 @@
-import Link from "next/link";
+ï»¿import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiGet, apiPost } from "../../lib/api";
 
@@ -57,6 +57,7 @@ export default function PropertyDetail() {
         <Link href="/">Properties</Link>
         <Link href="/work-orders">Work Orders</Link>
         <Link href="/upload">Upload Document</Link>
+        <Link href="/review">Review</Link>
       </nav>
 
       <h1>Property Detail</h1>
@@ -75,7 +76,7 @@ export default function PropertyDetail() {
           <h3>Documents</h3>
           {documents.map((d) => (
             <div key={d.id}>
-              #{d.id} — {d.extras?.name || "document"} ({d.extras?.status})
+              #{d.id} â€” {d.extras?.name || "document"} ({d.extras?.status})
             </div>
           ))}
         </div>
@@ -83,7 +84,7 @@ export default function PropertyDetail() {
           <h3>Work Orders</h3>
           {workOrders.map((w) => (
             <div key={w.id}>
-              #{w.id} — {w.extras?.title || "work"}
+              #{w.id} â€” {w.extras?.title || "work"}
             </div>
           ))}
           <form onSubmit={createWorkOrder} style={{ marginTop: 12 }}>

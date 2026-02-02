@@ -47,6 +47,7 @@ export default function WorkOrders() {
         <Link href="/">Properties</Link>
         <Link href="/work-orders">Work Orders</Link>
         <Link href="/upload">Upload Document</Link>
+        <Link href="/review">Review</Link>
       </nav>
 
       <h1>Work Orders</h1>

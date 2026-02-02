@@ -34,6 +34,16 @@ class DocumentOut(BaseModel):
     extras: Dict[str, Any]
 
 
+class DocumentExtractionOut(BaseModel):
+    id: int
+    document_id: int
+    extras: Dict[str, Any]
+
+
+class DocumentReviewRequest(BaseModel):
+    extraction: Dict[str, Any]
+
+
 class WorkOrderCreate(BaseModel):
     property_id: int
     extras: Dict[str, Any] = Field(default_factory=dict)

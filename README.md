@@ -48,7 +48,8 @@ rentED API is a backend scaffold for property management operations. It includes
 - JWT login (role-based placeholder)
 - CRUD for properties
 - Document upload (local storage) + list by status
-- Mock document processing endpoint
+- Deterministic extraction pipeline (worker + Redis queue)
+- Review screen to confirm extracted JSON
 - Work orders creation + listing
 - Alembic migrations
 - Dashboard docs at `/docs`
@@ -120,15 +121,20 @@ docker compose up -d --build
 docker compose run --rm api alembic upgrade head
 ```
 
-### 5.4 (Optional) Seed admin + 2 properties
+### 5.4 Start worker
+```
+docker compose up -d worker
+```
+
+### 5.5 (Optional) Seed admin + 2 properties
 ```
 docker compose run --rm api python scripts/seed.py
 ```
 
-### 5.5 Open the dashboard docs
+### 5.6 Open the dashboard docs
 - `http://localhost:8000/docs`
 
-### 5.6 Open Swagger UI
+### 5.7 Open Swagger UI
 - `http://localhost:8000/swagger`
 
 ---
@@ -145,6 +151,7 @@ Optional:
 - `JWT_TTL_MINUTES` (default: `60`)
 - `UPLOAD_DIR` (default: `/app/data/uploads`)
 - `NEXT_PUBLIC_API_BASE` (frontend, default: `http://localhost:8000`)
+- `REDIS_URL` (default: `redis://redis:6379/0`)
 
 ---
 

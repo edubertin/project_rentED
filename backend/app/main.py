@@ -12,9 +12,12 @@ from sqlalchemy.orm import Session
 from app.auth import create_token
 from app.deps import get_db
 from app.models import Document, DocumentExtraction, Property, User, WorkOrder
+from app.queue import is_inline_mode, try_enqueue
 from app.schemas import (
     DocumentOut,
     DocumentProcessResponse,
+    DocumentExtractionOut,
+    DocumentReviewRequest,
     LoginRequest,
     LoginResponse,
     PropertyCreate,
@@ -24,6 +27,7 @@ from app.schemas import (
     WorkOrderOut,
 )
 from app.storage import get_upload_dir
+from app.worker import process_document_job
 
 app = FastAPI(
     title="rentED API",
@@ -157,6 +161,15 @@ def upload_document(
     db.add(doc)
     db.commit()
     db.refresh(doc)
+
+    try:
+        if is_inline_mode():
+            process_document_job(doc.id)
+        else:
+            try_enqueue(process_document_job, doc.id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="queue_unavailable") from exc
+
     return doc
 
 
@@ -166,6 +179,39 @@ def list_documents(status: str | None = None, db: Session = Depends(get_db)) -> 
     if status:
         stmt = stmt.where(Document.extras["status"].astext == status)
     return db.execute(stmt).scalars().all()
+
+
+@app.get("/documents/{document_id}/extraction", response_model=DocumentExtractionOut)
+def get_document_extraction(document_id: int, db: Session = Depends(get_db)) -> DocumentExtractionOut:
+    extraction = db.execute(
+        select(DocumentExtraction).where(DocumentExtraction.document_id == document_id)
+    ).scalar_one_or_none()
+    if extraction is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    return extraction
+
+
+@app.put("/documents/{document_id}/review", response_model=DocumentOut)
+def review_document(
+    document_id: int,
+    payload: DocumentReviewRequest,
+    db: Session = Depends(get_db),
+) -> DocumentOut:
+    doc = db.get(Document, document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    extraction = db.execute(
+        select(DocumentExtraction).where(DocumentExtraction.document_id == document_id)
+    ).scalar_one_or_none()
+    if extraction is None:
+        raise HTTPException(status_code=404, detail="extraction_not_found")
+    extraction.extras = payload.extraction
+    extras = dict(doc.extras or {})
+    extras["status"] = "confirmed"
+    doc.extras = extras
+    db.commit()
+    db.refresh(doc)
+    return doc
 
 
 @app.post("/documents/{document_id}/process", response_model=DocumentProcessResponse)

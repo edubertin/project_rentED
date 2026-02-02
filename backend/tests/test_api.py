@@ -7,6 +7,7 @@ from sqlalchemy import delete, select
 from app.db import SessionLocal
 from app.main import app
 from app.models import Document, DocumentExtraction, Property, User, WorkOrder
+from app.worker import process_document_job
 
 
 client = TestClient(app)
@@ -123,3 +124,42 @@ def test_document_upload_and_process(tmp_path):
     if stored_path and os.path.exists(stored_path):
         os.remove(stored_path)
     _cleanup_by_role(role)
+
+
+def test_worker_pipeline(tmp_path):
+    role = f"test_worker_{uuid.uuid4().hex}"
+    user_id = _create_user(role)
+    session = SessionLocal()
+    try:
+        prop = Property(owner_user_id=user_id, extras={"label": "Worker"})
+        session.add(prop)
+        session.commit()
+        session.refresh(prop)
+
+        file_path = tmp_path / "worker.txt"
+        file_path.write_text("worker-data")
+
+        doc = Document(
+            property_id=prop.id,
+            extras={"path": str(file_path), "status": "uploaded", "name": "worker.txt"},
+        )
+        session.add(doc)
+        session.commit()
+        session.refresh(doc)
+        doc_id = doc.id
+    finally:
+        session.close()
+
+    process_document_job(doc_id)
+
+    session = SessionLocal()
+    try:
+        doc = session.get(Document, doc_id)
+        assert doc.extras["status"] == "needs_review"
+        extraction = session.execute(
+            select(DocumentExtraction).where(DocumentExtraction.document_id == doc_id)
+        ).scalar_one_or_none()
+        assert extraction is not None
+    finally:
+        session.close()
+        _cleanup_by_role(role)

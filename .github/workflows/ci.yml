@@ -29,6 +29,7 @@ jobs:
           - 6379:6379
     env:
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/app
+      PYTHONPATH: .
 
     steps:
       - name: Checkout

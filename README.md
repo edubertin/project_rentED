@@ -1,8 +1,10 @@
 # rentED API
 
 ![CI](https://github.com/edubertin/project_rentED/actions/workflows/ci.yml/badge.svg)
-![Release](https://img.shields.io/github/v/release/edubertin/project_rentED)
+![Secret Scan](https://github.com/edubertin/project_rentED/actions/workflows/secret-scan.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)
 ![License](https://img.shields.io/github/license/edubertin/project_rentED)
+![Release](https://img.shields.io/github/v/release/edubertin/project_rentED)
 
 A minimal FastAPI + Postgres + Redis backend for property management workflows.
 This repository is intentionally lean but structured to grow with clear contracts and migrations.

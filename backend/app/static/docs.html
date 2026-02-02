@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>rentED API — Dashboard Docs</title>
+    <link rel="stylesheet" href="/static/dashboard.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="topbar">
+        <div class="brand">
+          <span class="dot"></span>
+          <div>
+            <h1>rentED API</h1>
+            <p>Developer dashboard for the core backend services.</p>
+          </div>
+        </div>
+        <div class="meta">
+          <div class="pill">v0.1.0</div>
+          <div class="pill">OAS 3.1</div>
+        </div>
+      </header>
+
+      <section class="hero">
+        <div class="hero-card">
+          <h2>Getting Started</h2>
+          <p>
+            Use this dashboard as a guide to core endpoints, quick testing, and
+            operational status. Swagger is available in a dedicated workspace.
+          </p>
+          <div class="hero-links">
+            <a class="inline-link" href="/swagger">Open Swagger</a>
+            <a class="inline-link" href="/openapi.json">OpenAPI JSON</a>
+            <a class="inline-link" href="#" onclick="openModal(); return false;">Quick Test</a>
+          </div>
+        </div>
+        <div class="hero-card">
+          <h2>Core Modules</h2>
+          <div class="module-grid">
+            <div class="module">
+              <h3>Auth</h3>
+              <p>JWT login, role-based placeholder.</p>
+            </div>
+            <div class="module">
+              <h3>Properties</h3>
+              <p>CRUD for property records.</p>
+            </div>
+            <div class="module">
+              <h3>Documents</h3>
+              <p>Upload + process flow (mock).</p>
+            </div>
+            <div class="module">
+              <h3>Work Orders</h3>
+              <p>Create and track OS.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="widgets">
+        <div class="widget">
+          <div class="widget-header">
+            <h3>Health</h3>
+            <span class="badge">GET /health</span>
+          </div>
+          <p>Quick connectivity check.</p>
+          <button class="action" type="button" onclick="runHealth()">Run</button>
+          <pre id="health-output" class="code muted">{}</pre>
+        </div>
+        <div class="widget">
+          <div class="widget-header">
+            <h3>Login</h3>
+            <span class="badge">POST /auth/login</span>
+          </div>
+          <p>Role-based login (placeholder).</p>
+          <label class="field">
+            <span>Role</span>
+            <input id="login-role" type="text" placeholder="admin" />
+          </label>
+          <button class="action" type="button" onclick="runLogin()">Run</button>
+          <pre id="login-output" class="code muted">{}</pre>
+        </div>
+        <div class="widget">
+          <div class="widget-header">
+            <h3>Documents</h3>
+            <span class="badge">GET /documents</span>
+          </div>
+          <p>Filter by status.</p>
+          <label class="field">
+            <span>Status</span>
+            <input id="docs-status" type="text" placeholder="uploaded" />
+          </label>
+          <button class="action" type="button" onclick="runDocuments()">Run</button>
+          <pre id="docs-output" class="code muted">[]</pre>
+        </div>
+      </section>
+
+      <section class="grid">
+        <div class="panel">
+          <h3>Property Creator</h3>
+          <p>POST /properties</p>
+          <label class="field">
+            <span>Owner User ID</span>
+            <input id="prop-owner" type="number" placeholder="1" />
+          </label>
+          <label class="field">
+            <span>Extras (JSON)</span>
+            <textarea id="prop-extras" rows="3" placeholder='{"label":"Main"}'></textarea>
+          </label>
+          <button class="action" type="button" onclick="runCreateProperty()">Create</button>
+          <pre id="prop-output" class="code muted">{}</pre>
+        </div>
+        <div class="panel">
+          <h3>Upload Document</h3>
+          <p>POST /documents/upload</p>
+          <label class="field">
+            <span>Property ID</span>
+            <input id="upload-property" type="number" placeholder="1" />
+          </label>
+          <label class="field">
+            <span>File</span>
+            <input id="upload-file" type="file" />
+          </label>
+          <button class="action" type="button" onclick="runUpload()">Upload</button>
+          <pre id="upload-output" class="code muted">{}</pre>
+        </div>
+      </section>
+
+      <section class="grid">
+        <div class="panel">
+          <h3>Endpoint Index</h3>
+          <ul class="list">
+            <li>GET /health</li>
+            <li>POST /auth/login</li>
+            <li>GET /properties</li>
+            <li>POST /properties</li>
+            <li>PUT /properties/{id}</li>
+            <li>DELETE /properties/{id}</li>
+            <li>POST /documents/upload</li>
+            <li>GET /documents</li>
+            <li>POST /documents/{id}/process</li>
+            <li>POST /work-orders</li>
+            <li>GET /work-orders</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>Operational Notes</h3>
+          <ul class="list">
+            <li>Uploads stored locally in /app/data/uploads.</li>
+            <li>Use /swagger for full request/response schemas.</li>
+            <li>Auth is role-based until user credentials are defined.</li>
+          </ul>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <span>rentED API • Minimal backend scaffolding</span>
+      </footer>
+    </div>
+
+    <div id="modal" class="modal" aria-hidden="true">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>Quick Test (curl)</h3>
+          <button class="close" type="button" onclick="closeModal()">×</button>
+        </div>
+        <pre class="code">curl http://localhost:8000/health</pre>
+        <pre class="code">curl -X POST http://localhost:8000/auth/login -H "Content-Type: application/json" -d '{"role":"admin"}'</pre>
+        <pre class="code">curl http://localhost:8000/documents?status=uploaded</pre>
+      </div>
+    </div>
+
+    <script>
+      const modal = document.getElementById("modal");
+      const jsonHeaders = { "Content-Type": "application/json" };
+
+      function safeJsonParse(value, fallback) {
+        try {
+          return JSON.parse(value);
+        } catch (err) {
+          return fallback;
+        }
+      }
+
+      function renderOutput(id, payload) {
+        const node = document.getElementById(id);
+        if (!node) return;
+        node.textContent = JSON.stringify(payload, null, 2);
+      }
+
+      async function runHealth() {
+        const res = await fetch("/health");
+        const data = await res.json();
+        renderOutput("health-output", data);
+      }
+
+      async function runLogin() {
+        const role = document.getElementById("login-role").value || "admin";
+        const res = await fetch("/auth/login", {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify({ role }),
+        });
+        const data = await res.json();
+        renderOutput("login-output", data);
+      }
+
+      async function runDocuments() {
+        const status = document.getElementById("docs-status").value;
+        const url = status ? `/documents?status=${encodeURIComponent(status)}` : "/documents";
+        const res = await fetch(url);
+        const data = await res.json();
+        renderOutput("docs-output", data);
+      }
+
+      async function runCreateProperty() {
+        const owner = document.getElementById("prop-owner").value;
+        const extrasRaw = document.getElementById("prop-extras").value;
+        const extras = safeJsonParse(extrasRaw || "{}", {});
+        if (!owner) {
+          renderOutput("prop-output", { error: "owner_user_id is required" });
+          return;
+        }
+        const res = await fetch("/properties", {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify({ owner_user_id: Number(owner), extras }),
+        });
+        const data = await res.json();
+        renderOutput("prop-output", data);
+      }
+
+      async function runUpload() {
+        const propertyId = document.getElementById("upload-property").value;
+        const fileInput = document.getElementById("upload-file");
+        if (!propertyId) {
+          renderOutput("upload-output", { error: "property_id is required" });
+          return;
+        }
+        if (!fileInput.files.length) {
+          renderOutput("upload-output", { error: "file is required" });
+          return;
+        }
+        const form = new FormData();
+        form.append("file", fileInput.files[0]);
+        const res = await fetch(`/documents/upload?property_id=${propertyId}`, {
+          method: "POST",
+          body: form,
+        });
+        const data = await res.json();
+        renderOutput("upload-output", data);
+      }
+
+      function openModal() {
+        modal.classList.add("open");
+        modal.setAttribute("aria-hidden", "false");
+      }
+      function closeModal() {
+        modal.classList.remove("open");
+        modal.setAttribute("aria-hidden", "true");
+      }
+      modal.addEventListener("click", (event) => {
+        if (event.target === modal) closeModal();
+      });
+    </script>
+  </body>
+</html>

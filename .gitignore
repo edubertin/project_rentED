@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.egg-info/
+.venv/
+.env
+
+# Pytest
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+**/data/uploads/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Build
+build/
+dist/

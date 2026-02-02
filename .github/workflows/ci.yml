@@ -49,6 +49,12 @@ jobs:
         working-directory: backend
         run: alembic upgrade head
 
-      - name: Run tests
+      - name: Run tests with coverage
         working-directory: backend
-        run: pytest
+        run: pytest --cov=app --cov-report=xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: backend/coverage.xml
+          fail_ci_if_error: true

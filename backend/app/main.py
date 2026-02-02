@@ -2,10 +2,11 @@ import uuid
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.auth import create_token
@@ -30,6 +31,19 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
     openapi_url="/openapi.json",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -101,6 +115,17 @@ def delete_property(property_id: int, db: Session = Depends(get_db)) -> JSONResp
     prop = db.get(Property, property_id)
     if prop is None:
         raise HTTPException(status_code=404, detail="not_found")
+    doc_ids = (
+        db.execute(select(Document.id).where(Document.property_id == property_id))
+        .scalars()
+        .all()
+    )
+    if doc_ids:
+        db.execute(
+            delete(DocumentExtraction).where(DocumentExtraction.document_id.in_(doc_ids))
+        )
+        db.execute(delete(Document).where(Document.id.in_(doc_ids)))
+    db.execute(delete(WorkOrder).where(WorkOrder.property_id == property_id))
     db.delete(prop)
     db.commit()
     return JSONResponse(status_code=204, content=None)

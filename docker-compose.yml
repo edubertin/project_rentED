@@ -22,6 +22,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://postgres:postgres@db:5432/app}
     ports:
       - "8000:8000"
+    volumes:
+      - ./data/uploads:/app/data/uploads
     depends_on:
       - db
       - redis

@@ -21,12 +21,14 @@ This repository is intentionally lean but structured to grow with clear contract
 7. Database Migrations
 8. Seed Data
 9. API Usage (curl examples)
-10. Dashboard Docs and Swagger
-11. Testing
-12. Troubleshooting
-13. Roadmap / Next Steps
-14. Contributing / Git Workflow
-15. License
+10. Frontend Dashboard (Next.js)
+11. Dashboard Docs and Swagger
+12. Testing
+13. Security Notes
+14. Troubleshooting
+15. Roadmap / Next Steps
+16. Contributing / Git Workflow
+17. License
 
 ---
 
@@ -85,6 +87,13 @@ backend/
   Dockerfile
   requirements.txt
 
+frontend/
+  pages/
+  styles/
+  lib/
+  next.config.js
+  package.json
+
 docker-compose.yml
 .env.example
 README.md
@@ -135,6 +144,7 @@ Optional:
 - `JWT_SECRET` (default: `dev-secret`)
 - `JWT_TTL_MINUTES` (default: `60`)
 - `UPLOAD_DIR` (default: `/app/data/uploads`)
+- `NEXT_PUBLIC_API_BASE` (frontend, default: `http://localhost:8000`)
 
 ---
 
@@ -232,14 +242,38 @@ curl http://localhost:8000/work-orders
 
 ---
 
-## 10. Dashboard Docs and Swagger
+## 10. Frontend Dashboard (Next.js)
+The frontend is a minimal Next.js dashboard (no fancy styling) with 4 screens:
+- Properties list + create
+- Property detail (documents + work orders)
+- Work orders list + create
+- Document upload
+
+Run it:
+```
+cd frontend
+npm install
+npm run dev
+```
+
+Then open:
+- `http://localhost:3000` (or `:3001` if 3000 is in use)
+
+If the API is on a different host/port:
+```
+set NEXT_PUBLIC_API_BASE=http://localhost:8000
+```
+
+---
+
+## 11. Dashboard Docs and Swagger
 - `/docs` provides an interactive dashboard with inline test widgets.
 - `/swagger` provides full OpenAPI request/response schemas.
 - `/openapi.json` returns raw OpenAPI JSON.
 
 ---
 
-## 11. Testing
+## 12. Testing
 Run tests inside the container:
 ```
 docker compose run --rm api pytest
@@ -247,7 +281,15 @@ docker compose run --rm api pytest
 
 ---
 
-## 12. Troubleshooting
+## 13. Security Notes
+- All CRUD endpoints are currently unauthenticated (dev-only). Add auth before production.
+- Default Postgres credentials are for local use only.
+- Uploads are stored locally in `./data/uploads` (bind-mounted into the container).
+- Exposed ports (Postgres/Redis) are open to the host. Restrict or remove in production.
+
+---
+
+## 14. Troubleshooting
 ### Migration errors (missing revision)
 If you see:
 `Can't locate revision identified by '0001_create_items'`
@@ -259,6 +301,7 @@ docker compose build api
 
 ### Upload directory issues
 If uploads fail, verify the container can write to `/app/data/uploads`.
+Ensure `./data/uploads` exists on the host when using the bind mount.
 
 ### Redis warnings
 If Redis logs warning about POST/Host commands, it is likely due to port exposure.
@@ -266,7 +309,7 @@ For local-only use, bind to 127.0.0.1 or remove the port mapping.
 
 ---
 
-## 13. Roadmap / Next Steps
+## 15. Roadmap / Next Steps
 - Define real user fields (email, name, password hash)
 - Replace role-based login with credential validation
 - Add ownership rules and authorization
@@ -276,10 +319,10 @@ For local-only use, bind to 127.0.0.1 or remove the port mapping.
 
 ---
 
-## 14. Contributing / Git Workflow
+## 16. Contributing / Git Workflow
 See `CONTRIBUTING.md` for the full workflow and expectations.
 
 ---
 
-## 15. License
+## 17. License
 MIT. See `LICENSE` for details.

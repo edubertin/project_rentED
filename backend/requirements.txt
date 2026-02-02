@@ -9,3 +9,8 @@ python-multipart==0.0.9
 pytest-cov==5.0.0
 redis==5.0.8
 rq==1.16.2
+langchain-openai
+langchain-core
+pypdf
+pytesseract
+Pillow

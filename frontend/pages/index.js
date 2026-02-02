@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPost } from "../lib/api";
+import TopNav from "../components/TopNav";
 
 export default function Home() {
   const [properties, setProperties] = useState([]);
   const [ownerUserId, setOwnerUserId] = useState("");
   const [label, setLabel] = useState("");
+  const [role, setRole] = useState("owner");
   const [error, setError] = useState("");
 
   async function load() {
@@ -42,6 +44,17 @@ export default function Home() {
     }
   }
 
+  async function createUser(e) {
+    e.preventDefault();
+    setError("");
+    try {
+      const user = await apiPost("/users", { role, extras: {} });
+      setOwnerUserId(String(user.id));
+    } catch (err) {
+      setError("Failed to create user");
+    }
+  }
+
   async function removeProperty(id) {
     setError("");
     try {
@@ -54,15 +67,21 @@ export default function Home() {
 
   return (
     <div className="container">
-      <nav className="nav">
-        <Link href="/">Properties</Link>
-        <Link href="/work-orders">Work Orders</Link>
-        <Link href="/upload">Upload Document</Link>
-        <Link href="/review">Review</Link>
-      </nav>
+      <TopNav />
 
       <h1>Properties</h1>
       <div className="grid">
+        <div className="card">
+          <h3>Create User</h3>
+          <form onSubmit={createUser}>
+            <label>Role</label>
+            <input value={role} onChange={(e) => setRole(e.target.value)} />
+            <small>Dev-only helper. Remove or protect before production.</small>
+            <div style={{ marginTop: 12 }}>
+              <button type="submit">Create User</button>
+            </div>
+          </form>
+        </div>
         <div className="card">
           <h3>Create Property</h3>
           <form onSubmit={createProperty}>
@@ -70,7 +89,7 @@ export default function Home() {
             <input value={ownerUserId} onChange={(e) => setOwnerUserId(e.target.value)} />
             <label>Label</label>
             <input value={label} onChange={(e) => setLabel(e.target.value)} />
-            <small>TODO: replace owner_user_id with real user selector.</small>
+            <small>Use the user created above or an existing user id.</small>
             <div style={{ marginTop: 12 }}>
               <button type="submit">Create</button>
             </div>

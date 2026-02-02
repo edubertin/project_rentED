@@ -1,5 +1,5 @@
-import Link from "next/link";
-import { useState } from "react";
+﻿import { useState } from "react";
+import TopNav from "../components/TopNav";
 import { API_BASE } from "../lib/api";
 
 export default function Upload() {
@@ -30,12 +30,7 @@ export default function Upload() {
 
   return (
     <div className="container">
-      <nav className="nav">
-        <Link href="/">Properties</Link>
-        <Link href="/work-orders">Work Orders</Link>
-        <Link href="/upload">Upload Document</Link>
-        <Link href="/review">Review</Link>
-      </nav>
+      <TopNav />
 
       <h1>Upload Document</h1>
       <div className="card">

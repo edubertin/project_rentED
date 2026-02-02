@@ -1,31 +1,29 @@
-import hashlib
 import json
-from pathlib import Path
+import os
+from datetime import datetime, timezone
 
-from sqlalchemy import select
-
+from app.ai import extract_text, prepare_llm_input, run_llm_extraction
 from app.db import SessionLocal
-from app.models import Document, DocumentExtraction
+from app.models import ActivityLog, Document, DocumentExtraction
 
 
-def _classify_extension(name: str) -> str:
-    ext = name.lower().split(".")[-1] if "." in name else ""
-    if ext in {"pdf"}:
-        return "contract"
-    if ext in {"jpg", "jpeg", "png"}:
-        return "photo"
-    if ext in {"txt"}:
-        return "text"
-    return "other"
+def _confidence_threshold() -> float:
+    import os
+
+    try:
+        return float(os.getenv("AI_CONFIDENCE_THRESHOLD", "0.7"))
+    except ValueError:
+        return 0.7
 
 
-def _mock_extract_text(path: str) -> str:
-    file_path = Path(path)
-    if not file_path.exists():
-        return "missing_file"
-    data = file_path.read_bytes()
-    digest = hashlib.sha1(data).hexdigest()[:12]
-    return f"mock_text_sha1:{digest}"
+def _log_event(session: SessionLocal, event: str, document_id: int, extras: dict) -> None:
+    payload = {
+        "event": event,
+        "document_id": document_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        **extras,
+    }
+    session.add(ActivityLog(user_id=None, extras=payload))
 
 
 def process_document_job(document_id: int) -> None:
@@ -37,13 +35,53 @@ def process_document_job(document_id: int) -> None:
         extras = dict(doc.extras or {})
         file_path = extras.get("path", "")
         name = extras.get("name", "")
-        doc_type = _classify_extension(name)
-        text = _mock_extract_text(file_path)
+        _log_event(session, "document_processing_started", document_id, {})
+        text_result = extract_text(file_path)
+        llm_result = None
+        if not text_result.text:
+            text_result.meta["errors"].append("no_text_extracted")
+        else:
+            prepared_text, llm_meta = prepare_llm_input(text_result.text)
+            try:
+                llm_result = run_llm_extraction(prepared_text, name)
+            except Exception as exc:
+                error_name = type(exc).__name__
+                text_result.meta["errors"].append(f"llm_failed:{error_name}")
 
+        alerts: list[str] = []
+        if text_result.meta.get("errors"):
+            alerts.extend(text_result.meta["errors"])
+
+        if llm_result is None:
+            doc_type = "other"
+            fields = {}
+            summary = ""
+            confidence = 0.0
+            alerts.append("llm_failed")
+        else:
+            doc_type = llm_result.doc_type
+            fields = llm_result.fields
+            summary = llm_result.summary
+            confidence = llm_result.confidence
+            alerts.extend(llm_result.alerts or [])
+
+        if confidence < _confidence_threshold():
+            alerts.append("low_confidence")
+
+        ai_meta = {
+            "ai_mode": os.getenv("AI_MODE", "live"),
+            "model": os.getenv("OPENAI_MODEL", "gpt-4o"),
+            "file_name": name,
+            **(llm_meta if text_result.text else {}),
+        }
         extraction_payload = {
             "doc_type": doc_type,
-            "text": text,
-            "fields": {"summary": text[:32]},
+            "text": text_result.text,
+            "fields": fields,
+            "summary": summary,
+            "alerts": alerts,
+            "confidence": confidence,
+            "meta": {**text_result.meta, **ai_meta},
         }
         extraction = DocumentExtraction(
             document_id=document_id,
@@ -55,7 +93,15 @@ def process_document_job(document_id: int) -> None:
         extras["status"] = "needs_review"
         extras["doc_type"] = doc_type
         extras["extraction_id"] = extraction.id
+        extras["confidence"] = confidence
+        extras["alerts"] = alerts
         doc.extras = extras
+        _log_event(
+            session,
+            "document_processing_finished",
+            document_id,
+            {"status": "needs_review", "confidence": confidence},
+        )
         session.commit()
     finally:
         session.close()

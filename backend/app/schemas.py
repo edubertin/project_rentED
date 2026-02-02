@@ -12,6 +12,17 @@ class LoginResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class UserCreate(BaseModel):
+    role: str = Field(min_length=1)
+    extras: Dict[str, Any] = Field(default_factory=dict)
+
+
+class UserOut(BaseModel):
+    id: int
+    role: str
+    extras: Dict[str, Any]
+
+
 class PropertyCreate(BaseModel):
     owner_user_id: int
     extras: Dict[str, Any] = Field(default_factory=dict)

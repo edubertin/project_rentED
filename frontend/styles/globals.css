@@ -31,8 +31,25 @@ a {
 
 .nav {
   display: flex;
+  align-items: center;
   gap: 16px;
   padding: 12px 0 24px;
+}
+
+.nav-logo img {
+  height: 104px;
+  width: auto;
+  display: block;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  border: none;
+}
+
+.nav-links {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .card {

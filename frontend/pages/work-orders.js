@@ -1,6 +1,6 @@
-﻿import Link from "next/link";
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { apiGet, apiPost } from "../lib/api";
+import TopNav from "../components/TopNav";
 
 export default function WorkOrders() {
   const [workOrders, setWorkOrders] = useState([]);
@@ -43,12 +43,7 @@ export default function WorkOrders() {
 
   return (
     <div className="container">
-      <nav className="nav">
-        <Link href="/">Properties</Link>
-        <Link href="/work-orders">Work Orders</Link>
-        <Link href="/upload">Upload Document</Link>
-        <Link href="/review">Review</Link>
-      </nav>
+      <TopNav />
 
       <h1>Work Orders</h1>
       <div className="grid">

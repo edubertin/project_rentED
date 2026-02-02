@@ -1,5 +1,9 @@
 # rentED API
 
+<p align="center">
+  <img src="frontend/public/brand/logo.png" alt="rentED logo" width="560">
+</p>
+
 ![CI](https://github.com/edubertin/project_rentED/actions/workflows/ci.yml/badge.svg)
 ![Secret Scan](https://github.com/edubertin/project_rentED/actions/workflows/secret-scan.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)
@@ -22,13 +26,14 @@ This repository is intentionally lean but structured to grow with clear contract
 8. Seed Data
 9. API Usage (curl examples)
 10. Frontend Dashboard (Next.js)
-11. Dashboard Docs and Swagger
-12. Testing
-13. Security Notes
-14. Troubleshooting
-15. Roadmap / Next Steps
-16. Contributing / Git Workflow
-17. License
+11. Document Extraction Pipeline (AI)
+12. Dashboard Docs and Swagger
+13. Testing
+14. Security Notes
+15. Troubleshooting
+16. Roadmap / Next Steps
+17. Contributing / Git Workflow
+18. License
 
 ---
 
@@ -37,7 +42,7 @@ rentED API is a backend scaffold for property management operations. It includes
 - Core data model with migrations
 - JWT login placeholder
 - CRUD endpoints for properties
-- Document upload and processing stub
+- Document upload and AI-backed extraction pipeline
 - Work orders endpoint
 - Custom documentation dashboard + Swagger
 
@@ -48,9 +53,11 @@ rentED API is a backend scaffold for property management operations. It includes
 - JWT login (role-based placeholder)
 - CRUD for properties
 - Document upload (local storage) + list by status
-- Deterministic extraction pipeline (worker + Redis queue)
+- AI extraction pipeline (worker + Redis queue) with confidence scoring
 - Review screen to confirm extracted JSON
 - Work orders creation + listing
+- Activity log entries for document processing/review
+- Dev-only user bootstrap endpoint (`/users`)
 - Alembic migrations
 - Dashboard docs at `/docs`
 - Swagger UI at `/swagger`
@@ -63,6 +70,9 @@ rentED API is a backend scaffold for property management operations. It includes
 - Alembic
 - PostgreSQL
 - Redis
+- RQ
+- LangChain (OpenAI)
+- pypdf + optional OCR
 - Docker Compose
 
 ---
@@ -89,6 +99,8 @@ backend/
   requirements.txt
 
 frontend/
+  components/
+    TopNav.js
   pages/
   styles/
   lib/
@@ -145,13 +157,21 @@ Defined in `.env.example`:
 - `POSTGRES_PASSWORD`
 - `POSTGRES_DB`
 - `DATABASE_URL`
+- `REDIS_URL`
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
+- `OPENAI_TEMPERATURE`
+- `OPENAI_MAX_TOKENS` (default 1024)
+- `AI_MODE` (`live` or `mock`)
+- `AI_CONFIDENCE_THRESHOLD`
+- `OCR_MODE` (`none` or `tesseract`)
+- `AI_LLM_INPUT_MAX_CHARS` (max characters sent to the LLM)
 
 Optional:
 - `JWT_SECRET` (default: `dev-secret`)
 - `JWT_TTL_MINUTES` (default: `60`)
 - `UPLOAD_DIR` (default: `/app/data/uploads`)
 - `NEXT_PUBLIC_API_BASE` (frontend, default: `http://localhost:8000`)
-- `REDIS_URL` (default: `redis://redis:6379/0`)
 
 ---
 
@@ -202,6 +222,14 @@ curl -X POST http://localhost:8000/properties \
   -d '{"owner_user_id":1,"extras":{"label":"Main"}}'
 ```
 
+### Create User (dev-only)
+This endpoint is for development/testing only. Do not expose it in production.
+```
+curl -X POST http://localhost:8000/users \
+  -H "Content-Type: application/json" \
+  -d '{"role":"owner","extras":{"name":"Test"}}'
+```
+
 ### List Properties
 ```
 curl http://localhost:8000/properties
@@ -230,9 +258,21 @@ curl -X POST "http://localhost:8000/documents/upload?property_id=1" \
 curl "http://localhost:8000/documents?status=uploaded"
 ```
 
-### Process Document (mock)
+### Process Document (enqueue)
 ```
 curl -X POST http://localhost:8000/documents/1/process
+```
+
+### Get Document Extraction
+```
+curl http://localhost:8000/documents/1/extraction
+```
+
+### Confirm Document Review
+```
+curl -X PUT http://localhost:8000/documents/1/review \
+  -H "Content-Type: application/json" \
+  -d '{"extraction":{"doc_type":"contract","fields":{},"summary":"ok","alerts":[],"confidence":0.9}}'
 ```
 
 ### Create Work Order
@@ -273,14 +313,32 @@ set NEXT_PUBLIC_API_BASE=http://localhost:8000
 
 ---
 
-## 11. Dashboard Docs and Swagger
+## 11. Document Extraction Pipeline (AI)
+### Flow
+1. Upload document -> stored locally.
+2. Worker extracts text (PDF/text files; OCR optional for images).
+3. AI extracts `doc_type`, fields, summary, alerts, and confidence.
+4. Document status moves to `needs_review`.
+5. Review endpoint confirms and sets status to `confirmed`.
+
+### Notes
+- AI results are stored in `document_extractions.extras`.
+- Extracted text is always preserved in the extraction payload.
+- Low-confidence results add an alert and still require review.
+- Set `AI_MODE=mock` in dev/tests to disable API calls.
+- OCR for images uses Tesseract. In Docker it is installed via the API image. Set `OCR_MODE=tesseract` to enable it.
+- LLM input is capped by `AI_LLM_INPUT_MAX_CHARS` to avoid oversized responses.
+
+---
+
+## 12. Dashboard Docs and Swagger
 - `/docs` provides an interactive dashboard with inline test widgets.
 - `/swagger` provides full OpenAPI request/response schemas.
 - `/openapi.json` returns raw OpenAPI JSON.
 
 ---
 
-## 12. Testing
+## 13. Testing
 Run tests inside the container:
 ```
 docker compose run --rm api pytest
@@ -288,15 +346,17 @@ docker compose run --rm api pytest
 
 ---
 
-## 13. Security Notes
+## 14. Security Notes
 - All CRUD endpoints are currently unauthenticated (dev-only). Add auth before production.
 - Default Postgres credentials are for local use only.
 - Uploads are stored locally in `./data/uploads` (bind-mounted into the container).
 - Exposed ports (Postgres/Redis) are open to the host. Restrict or remove in production.
+- Store `OPENAI_API_KEY` securely and never commit it.
+- Known advisory: Next.js has a high-severity advisory affecting Image Optimizer and Server Components. We keep Next 14.2.35 during development to avoid breaking changes and plan to upgrade to Next 16 before production.
 
 ---
 
-## 14. Troubleshooting
+## 15. Troubleshooting
 ### Migration errors (missing revision)
 If you see:
 `Can't locate revision identified by '0001_create_items'`
@@ -316,20 +376,20 @@ For local-only use, bind to 127.0.0.1 or remove the port mapping.
 
 ---
 
-## 15. Roadmap / Next Steps
+## 16. Roadmap / Next Steps
 - Define real user fields (email, name, password hash)
 - Replace role-based login with credential validation
 - Add ownership rules and authorization
 - Expand document metadata beyond `extras`
-- Add activity log entries on write operations
+- Extend activity log coverage to more write operations
 - Add test coverage for error cases and auth
 
 ---
 
-## 16. Contributing / Git Workflow
+## 17. Contributing / Git Workflow
 See `CONTRIBUTING.md` for the full workflow and expectations.
 
 ---
 
-## 17. License
+## 18. License
 MIT. See `LICENSE` for details.

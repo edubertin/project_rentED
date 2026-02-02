@@ -1,5 +1,5 @@
-﻿import Link from "next/link";
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
+import TopNav from "../../components/TopNav";
 import { apiGet, apiPost } from "../../lib/api";
 
 export default function PropertyDetail() {
@@ -53,12 +53,7 @@ export default function PropertyDetail() {
 
   return (
     <div className="container">
-      <nav className="nav">
-        <Link href="/">Properties</Link>
-        <Link href="/work-orders">Work Orders</Link>
-        <Link href="/upload">Upload Document</Link>
-        <Link href="/review">Review</Link>
-      </nav>
+      <TopNav />
 
       <h1>Property Detail</h1>
       {property ? (

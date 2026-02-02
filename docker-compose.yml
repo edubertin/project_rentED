@@ -21,6 +21,13 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://postgres:postgres@db:5432/app}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
+      OPENAI_TEMPERATURE: ${OPENAI_TEMPERATURE:-0}
+      OPENAI_MAX_TOKENS: ${OPENAI_MAX_TOKENS:-1024}
+      AI_MODE: ${AI_MODE:-live}
+      AI_CONFIDENCE_THRESHOLD: ${AI_CONFIDENCE_THRESHOLD:-0.7}
+      OCR_MODE: ${OCR_MODE:-none}
     ports:
       - "8000:8000"
     volumes:
@@ -35,6 +42,13 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://postgres:postgres@db:5432/app}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
+      OPENAI_TEMPERATURE: ${OPENAI_TEMPERATURE:-0}
+      OPENAI_MAX_TOKENS: ${OPENAI_MAX_TOKENS:-1024}
+      AI_MODE: ${AI_MODE:-live}
+      AI_CONFIDENCE_THRESHOLD: ${AI_CONFIDENCE_THRESHOLD:-0.7}
+      OCR_MODE: ${OCR_MODE:-none}
     volumes:
       - ./data/uploads:/app/data/uploads
     depends_on:

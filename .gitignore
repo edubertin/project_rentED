@@ -30,3 +30,6 @@ build/
 dist/
 node_modules/
 .next/
+
+# Personal references (local only)
+personal_notes/

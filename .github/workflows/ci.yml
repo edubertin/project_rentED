@@ -32,6 +32,8 @@ jobs:
       PYTHONPATH: .
       UPLOAD_DIR: /tmp/rented_uploads
       QUEUE_MODE: inline
+      AI_MODE: mock
+      OCR_MODE: none
 
     steps:
       - name: Checkout

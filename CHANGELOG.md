@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog], and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
+- Add AI extraction pipeline (LangChain + OpenAI) with confidence and review flow.
+- Add OCR option for images (Tesseract).
+- Record document processing activity logs.
+- Update Next.js to 14.2.35 and document known advisory for dev.
 
 ## [0.1.1] - 2026-02-02
 - Add Next.js dashboard (properties, detail, work orders, upload).

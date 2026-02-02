@@ -1,6 +1,9 @@
 import os
 import uuid
 
+os.environ.setdefault("QUEUE_MODE", "inline")
+os.environ.setdefault("AI_MODE", "mock")
+
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
 
@@ -76,6 +79,20 @@ def test_login_with_role():
     _cleanup_by_role(role)
 
 
+def test_create_user():
+    role = f"test_user_{uuid.uuid4().hex}"
+    resp = client.post("/users", json={"role": role, "extras": {"name": "Test"}})
+    assert resp.status_code == 201
+    user_id = resp.json()["id"]
+    session = SessionLocal()
+    try:
+        db_user = session.get(User, user_id)
+        assert db_user is not None
+    finally:
+        session.close()
+        _cleanup_by_role(role)
+
+
 def test_properties_crud():
     role = f"test_owner_{uuid.uuid4().hex}"
     user_id = _create_user(role)
@@ -117,7 +134,7 @@ def test_document_upload_and_process(tmp_path):
 
     resp = client.post(f"/documents/{doc['id']}/process")
     assert resp.status_code == 200
-    assert resp.json()["status"] == "processed"
+    assert resp.json()["status"] == "needs_review"
 
     # cleanup stored file
     stored_path = doc["extras"]["path"]
@@ -160,6 +177,43 @@ def test_worker_pipeline(tmp_path):
             select(DocumentExtraction).where(DocumentExtraction.document_id == doc_id)
         ).scalar_one_or_none()
         assert extraction is not None
+        assert extraction.extras.get("text") is not None
     finally:
         session.close()
         _cleanup_by_role(role)
+
+
+def test_review_document(tmp_path):
+    role = f"test_review_{uuid.uuid4().hex}"
+    user_id = _create_user(role)
+    prop = client.post(
+        "/properties",
+        json={"owner_user_id": user_id, "extras": {"label": "Review"}},
+    ).json()
+    file_path = tmp_path / "review.txt"
+    file_path.write_text("review-data")
+
+    with open(file_path, "rb") as handle:
+        resp = client.post(
+            "/documents/upload",
+            params={"property_id": prop["id"]},
+            files={"file": ("review.txt", handle, "text/plain")},
+        )
+    assert resp.status_code == 201
+    doc_id = resp.json()["id"]
+
+    extraction_resp = client.get(f"/documents/{doc_id}/extraction")
+    assert extraction_resp.status_code == 200
+    extraction = extraction_resp.json()["extras"]
+
+    review_resp = client.put(
+        f"/documents/{doc_id}/review",
+        json={"extraction": extraction},
+    )
+    assert review_resp.status_code == 200
+    assert review_resp.json()["extras"]["status"] == "confirmed"
+
+    stored_path = resp.json()["extras"]["path"]
+    if stored_path and os.path.exists(stored_path):
+        os.remove(stored_path)
+    _cleanup_by_role(role)

@@ -1,17 +1,18 @@
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.auth import create_token
 from app.deps import get_db
-from app.models import Document, DocumentExtraction, Property, User, WorkOrder
+from app.models import ActivityLog, Document, DocumentExtraction, Property, User, WorkOrder
 from app.queue import is_inline_mode, try_enqueue
 from app.schemas import (
     DocumentOut,
@@ -23,6 +24,8 @@ from app.schemas import (
     PropertyCreate,
     PropertyOut,
     PropertyUpdate,
+    UserCreate,
+    UserOut,
     WorkOrderCreate,
     WorkOrderOut,
 )
@@ -53,6 +56,11 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
+def _log_activity(db: Session, event: str, extras: dict, user_id: int | None = None) -> None:
+    payload = {"event": event, "timestamp": datetime.now(timezone.utc).isoformat(), **extras}
+    db.add(ActivityLog(user_id=user_id, extras=payload))
+
+
 @app.get("/health")
 def healthcheck() -> dict:
     return {"status": "ok"}
@@ -62,6 +70,12 @@ def healthcheck() -> dict:
 def custom_docs() -> HTMLResponse:
     docs_path = Path(__file__).parent / "static" / "docs.html"
     return HTMLResponse(docs_path.read_text(encoding="utf-8"))
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> FileResponse:
+    icon_path = Path(__file__).parent / "static" / "favicon.svg"
+    return FileResponse(icon_path, media_type="image/svg+xml")
 
 
 @app.get("/swagger", include_in_schema=False)
@@ -82,6 +96,20 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse
         raise HTTPException(status_code=401, detail="invalid_credentials")
     token = create_token(user.id, user.role)
     return LoginResponse(access_token=token)
+
+
+@app.get("/users", response_model=list[UserOut])
+def list_users(db: Session = Depends(get_db)) -> list[UserOut]:
+    return db.execute(select(User)).scalars().all()
+
+
+@app.post("/users", response_model=UserOut, status_code=201)
+def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> UserOut:
+    user = User(role=payload.role, extras=payload.extras)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 @app.get("/properties", response_model=list[PropertyOut])
@@ -132,7 +160,7 @@ def delete_property(property_id: int, db: Session = Depends(get_db)) -> JSONResp
     db.execute(delete(WorkOrder).where(WorkOrder.property_id == property_id))
     db.delete(prop)
     db.commit()
-    return JSONResponse(status_code=204, content=None)
+    return Response(status_code=204)
 
 
 @app.post("/documents/upload", response_model=DocumentOut, status_code=201)
@@ -161,6 +189,12 @@ def upload_document(
     db.add(doc)
     db.commit()
     db.refresh(doc)
+    _log_activity(
+        db,
+        "document_uploaded",
+        {"document_id": doc.id, "property_id": property_id},
+    )
+    db.commit()
 
     try:
         if is_inline_mode():
@@ -209,6 +243,11 @@ def review_document(
     extras = dict(doc.extras or {})
     extras["status"] = "confirmed"
     doc.extras = extras
+    _log_activity(
+        db,
+        "document_review_confirmed",
+        {"document_id": document_id, "status": "confirmed"},
+    )
     db.commit()
     db.refresh(doc)
     return doc
@@ -220,12 +259,23 @@ def process_document(document_id: int, db: Session = Depends(get_db)) -> Documen
     if doc is None:
         raise HTTPException(status_code=404, detail="not_found")
     extras = dict(doc.extras or {})
-    extras["status"] = "processed"
+    extras["status"] = "queued"
     doc.extras = extras
-    extraction = DocumentExtraction(document_id=document_id, extras={"status": "mocked"})
-    db.add(extraction)
     db.commit()
-    db.refresh(doc)
+    try:
+        if is_inline_mode():
+            process_document_job(doc.id)
+            db.refresh(doc)
+        else:
+            try_enqueue(process_document_job, doc.id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="queue_unavailable") from exc
+    _log_activity(
+        db,
+        "document_process_requested",
+        {"document_id": document_id, "status": doc.extras.get("status", "")},
+    )
+    db.commit()
     return DocumentProcessResponse(id=doc.id, status=doc.extras.get("status", ""))
 
 

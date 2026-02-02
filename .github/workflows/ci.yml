@@ -30,6 +30,7 @@ jobs:
     env:
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/app
       PYTHONPATH: .
+      UPLOAD_DIR: /tmp/rented_uploads
 
     steps:
       - name: Checkout

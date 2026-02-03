@@ -1,11 +1,18 @@
-﻿import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/router";
 import TopNav from "../components/TopNav";
 import { API_BASE } from "../lib/api";
+import { requireAuth } from "../lib/auth";
 
 export default function Upload() {
+  const router = useRouter();
   const [propertyId, setPropertyId] = useState("");
   const [file, setFile] = useState(null);
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    requireAuth(router);
+  }, [router]);
 
   async function upload(e) {
     e.preventDefault();
@@ -19,6 +26,7 @@ export default function Upload() {
     const res = await fetch(`${API_BASE}/documents/upload?property_id=${propertyId}`, {
       method: "POST",
       body: form,
+      credentials: "include",
     });
     if (!res.ok) {
       setMessage("Upload failed");

@@ -2,17 +2,26 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+import re
+
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.auth import create_token
-from app.deps import get_db
-from app.models import ActivityLog, Document, DocumentExtraction, Property, User, WorkOrder
+from app.auth import (
+    cookie_name,
+    cookie_secure,
+    hash_password,
+    new_session_id,
+    session_expiry,
+    verify_password,
+)
+from app.deps import get_current_user, get_db, get_optional_user, require_admin
+from app.models import ActivityLog, Document, DocumentExtraction, Property, Session as UserSession, User, WorkOrder
 from app.queue import is_inline_mode, try_enqueue
 from app.schemas import (
     DocumentOut,
@@ -21,6 +30,7 @@ from app.schemas import (
     DocumentReviewRequest,
     LoginRequest,
     LoginResponse,
+    AuthMeResponse,
     PropertyCreate,
     PropertyOut,
     PropertyUpdate,
@@ -48,6 +58,7 @@ app.add_middleware(
         "http://localhost:3001",
         "http://127.0.0.1:3001",
     ],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -55,6 +66,29 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
+ALLOWED_ROLES = {
+    "admin",
+    "real_estate",
+    "finance",
+    "service_provider",
+    "property_owner",
+}
+
+
+def _valid_cell_number(value: str) -> bool:
+    return bool(re.fullmatch(r"\(\d{3}\) \d{5} \d{4}", value))
+
+
+def _valid_password(value: str) -> bool:
+    if len(value) < 8 or len(value) > 72:
+        return False
+    has_letter = bool(re.search(r"[A-Za-z]", value))
+    has_number = bool(re.search(r"\d", value))
+    return has_letter and has_number
+
+
+def _valid_username(value: str) -> bool:
+    return bool(re.fullmatch(r"[a-zA-Z0-9._-]{3,80}", value))
 
 def _log_activity(db: Session, event: str, extras: dict, user_id: int | None = None) -> None:
     payload = {"event": event, "timestamp": datetime.now(timezone.utc).isoformat(), **extras}
@@ -89,36 +123,115 @@ def swagger_ui():
 
 
 @app.post("/auth/login", response_model=LoginResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
-    # TODO: add proper credential fields/verification once defined.
-    user = db.execute(select(User).where(User.role == payload.role)).scalar_one_or_none()
-    if user is None:
+def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)) -> LoginResponse:
+    user = db.execute(select(User).where(User.username == payload.username)).scalar_one_or_none()
+    if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="invalid_credentials")
-    token = create_token(user.id, user.role)
-    return LoginResponse(access_token=token)
+
+    session_id = new_session_id()
+    session = UserSession(
+        id=session_id,
+        user_id=user.id,
+        created_at=datetime.now(timezone.utc),
+        expires_at=session_expiry(),
+    )
+    db.add(session)
+    db.commit()
+
+    response.set_cookie(
+        key=cookie_name(),
+        value=session_id,
+        httponly=True,
+        samesite="lax",
+        secure=cookie_secure(),
+        max_age=int((session.expires_at - session.created_at).total_seconds()),
+    )
+    return LoginResponse(id=user.id, username=user.username, role=user.role, name=user.name)
+
+
+@app.post("/auth/logout")
+def logout(
+    request: Request,
+    response: Response,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    session_id = request.cookies.get(cookie_name())
+    if session_id:
+        session = db.get(UserSession, session_id)
+        if session:
+            session.revoked_at = datetime.now(timezone.utc)
+            db.commit()
+    response.delete_cookie(cookie_name())
+    return {"status": "ok"}
+
+
+@app.get("/auth/me", response_model=AuthMeResponse)
+def me(user: User | None = Depends(get_optional_user)) -> AuthMeResponse:
+    if user is None:
+        return AuthMeResponse(user=None)
+    return AuthMeResponse(user=UserOut.model_validate(user))
 
 
 @app.get("/users", response_model=list[UserOut])
-def list_users(db: Session = Depends(get_db)) -> list[UserOut]:
+def list_users(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> list[UserOut]:
     return db.execute(select(User)).scalars().all()
 
 
 @app.post("/users", response_model=UserOut, status_code=201)
-def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> UserOut:
-    user = User(role=payload.role, extras=payload.extras)
+def create_user(payload: UserCreate, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> UserOut:
+    if payload.role not in ALLOWED_ROLES:
+        raise HTTPException(status_code=422, detail="invalid_role")
+    if not _valid_username(payload.username):
+        raise HTTPException(status_code=422, detail="invalid_username")
+    if not _valid_password(payload.password):
+        raise HTTPException(status_code=422, detail="weak_password")
+    if not _valid_cell_number(payload.cell_number):
+        raise HTTPException(status_code=422, detail="invalid_cell_number")
+    user = User(
+        username=payload.username,
+        password_hash=hash_password(payload.password),
+        role=payload.role,
+        name=payload.name,
+        cell_number=payload.cell_number,
+        extras=payload.extras,
+    )
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    try:
+        db.commit()
+        db.refresh(user)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="username_exists") from exc
     return user
 
 
+@app.delete("/users/{user_id}", status_code=204)
+def delete_user(
+    user_id: int,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> Response:
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    db.execute(delete(UserSession).where(UserSession.user_id == user_id))
+    db.delete(user)
+    db.commit()
+    return Response(status_code=204)
+
+
 @app.get("/properties", response_model=list[PropertyOut])
-def list_properties(db: Session = Depends(get_db)) -> list[PropertyOut]:
+def list_properties(
+    _: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> list[PropertyOut]:
     return db.execute(select(Property)).scalars().all()
 
 
 @app.post("/properties", response_model=PropertyOut, status_code=201)
-def create_property(payload: PropertyCreate, db: Session = Depends(get_db)) -> PropertyOut:
+def create_property(
+    payload: PropertyCreate, _: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> PropertyOut:
     prop = Property(owner_user_id=payload.owner_user_id, extras=payload.extras)
     db.add(prop)
     db.commit()
@@ -128,7 +241,10 @@ def create_property(payload: PropertyCreate, db: Session = Depends(get_db)) -> P
 
 @app.put("/properties/{property_id}", response_model=PropertyOut)
 def update_property(
-    property_id: int, payload: PropertyUpdate, db: Session = Depends(get_db)
+    property_id: int,
+    payload: PropertyUpdate,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> PropertyOut:
     prop = db.get(Property, property_id)
     if prop is None:
@@ -143,7 +259,9 @@ def update_property(
 
 
 @app.delete("/properties/{property_id}", status_code=204)
-def delete_property(property_id: int, db: Session = Depends(get_db)) -> JSONResponse:
+def delete_property(
+    property_id: int, _: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> Response:
     prop = db.get(Property, property_id)
     if prop is None:
         raise HTTPException(status_code=404, detail="not_found")
@@ -167,6 +285,7 @@ def delete_property(property_id: int, db: Session = Depends(get_db)) -> JSONResp
 def upload_document(
     property_id: int,
     file: UploadFile = File(...),
+    _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> DocumentOut:
     prop = db.get(Property, property_id)
@@ -208,7 +327,11 @@ def upload_document(
 
 
 @app.get("/documents", response_model=list[DocumentOut])
-def list_documents(status: str | None = None, db: Session = Depends(get_db)) -> list[DocumentOut]:
+def list_documents(
+    status: str | None = None,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[DocumentOut]:
     stmt = select(Document)
     if status:
         stmt = stmt.where(Document.extras["status"].astext == status)
@@ -216,7 +339,9 @@ def list_documents(status: str | None = None, db: Session = Depends(get_db)) -> 
 
 
 @app.get("/documents/{document_id}/extraction", response_model=DocumentExtractionOut)
-def get_document_extraction(document_id: int, db: Session = Depends(get_db)) -> DocumentExtractionOut:
+def get_document_extraction(
+    document_id: int, _: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> DocumentExtractionOut:
     extraction = db.execute(
         select(DocumentExtraction).where(DocumentExtraction.document_id == document_id)
     ).scalar_one_or_none()
@@ -229,6 +354,7 @@ def get_document_extraction(document_id: int, db: Session = Depends(get_db)) -> 
 def review_document(
     document_id: int,
     payload: DocumentReviewRequest,
+    _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> DocumentOut:
     doc = db.get(Document, document_id)
@@ -254,7 +380,9 @@ def review_document(
 
 
 @app.post("/documents/{document_id}/process", response_model=DocumentProcessResponse)
-def process_document(document_id: int, db: Session = Depends(get_db)) -> DocumentProcessResponse:
+def process_document(
+    document_id: int, _: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> DocumentProcessResponse:
     doc = db.get(Document, document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="not_found")
@@ -280,7 +408,9 @@ def process_document(document_id: int, db: Session = Depends(get_db)) -> Documen
 
 
 @app.post("/work-orders", response_model=WorkOrderOut, status_code=201)
-def create_work_order(payload: WorkOrderCreate, db: Session = Depends(get_db)) -> WorkOrderOut:
+def create_work_order(
+    payload: WorkOrderCreate, _: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> WorkOrderOut:
     prop = db.get(Property, payload.property_id)
     if prop is None:
         raise HTTPException(status_code=404, detail="property_not_found")
@@ -292,5 +422,7 @@ def create_work_order(payload: WorkOrderCreate, db: Session = Depends(get_db)) -
 
 
 @app.get("/work-orders", response_model=list[WorkOrderOut])
-def list_work_orders(db: Session = Depends(get_db)) -> list[WorkOrderOut]:
+def list_work_orders(
+    _: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> list[WorkOrderOut]:
     return db.execute(select(WorkOrder)).scalars().all()

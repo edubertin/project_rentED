@@ -1,8 +1,11 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/router";
 import { apiGet, apiPost } from "../lib/api";
 import TopNav from "../components/TopNav";
+import { requireAuth } from "../lib/auth";
 
 export default function WorkOrders() {
+  const router = useRouter();
   const [workOrders, setWorkOrders] = useState([]);
   const [propertyId, setPropertyId] = useState("");
   const [title, setTitle] = useState("");
@@ -19,8 +22,13 @@ export default function WorkOrders() {
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    (async () => {
+      const user = await requireAuth(router);
+      if (user) {
+        load();
+      }
+    })();
+  }, [router]);
 
   async function createWorkOrder(e) {
     e.preventDefault();

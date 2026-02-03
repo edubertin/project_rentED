@@ -4,23 +4,40 @@ from pydantic import BaseModel, Field
 
 
 class LoginRequest(BaseModel):
-    role: str = Field(min_length=1)
+    username: str = Field(min_length=3, max_length=80)
+    password: str = Field(min_length=8, max_length=72)
 
 
 class LoginResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+    id: int
+    username: str
+    role: str
+    name: str
 
 
 class UserCreate(BaseModel):
+    username: str = Field(min_length=3, max_length=80)
+    password: str = Field(min_length=8, max_length=72)
     role: str = Field(min_length=1)
+    name: str = Field(min_length=2, max_length=120)
+    cell_number: str = Field(min_length=8, max_length=20)
     extras: Dict[str, Any] = Field(default_factory=dict)
 
 
 class UserOut(BaseModel):
     id: int
+    username: str
     role: str
+    name: str
+    cell_number: str
     extras: Dict[str, Any]
+
+    class Config:
+        from_attributes = True
+
+
+class AuthMeResponse(BaseModel):
+    user: UserOut | None
 
 
 class PropertyCreate(BaseModel):

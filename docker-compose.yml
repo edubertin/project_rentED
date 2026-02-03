@@ -28,6 +28,13 @@ services:
       AI_MODE: ${AI_MODE:-live}
       AI_CONFIDENCE_THRESHOLD: ${AI_CONFIDENCE_THRESHOLD:-0.7}
       OCR_MODE: ${OCR_MODE:-none}
+      SESSION_TTL_MINUTES: ${SESSION_TTL_MINUTES:-120}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-rented_session}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-Admin123!}
+      SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-Admin User}
+      SEED_ADMIN_CELL: ${SEED_ADMIN_CELL}
     ports:
       - "8000:8000"
     volumes:
@@ -49,6 +56,13 @@ services:
       AI_MODE: ${AI_MODE:-live}
       AI_CONFIDENCE_THRESHOLD: ${AI_CONFIDENCE_THRESHOLD:-0.7}
       OCR_MODE: ${OCR_MODE:-none}
+      SESSION_TTL_MINUTES: ${SESSION_TTL_MINUTES:-120}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-rented_session}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-Admin123!}
+      SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-Admin User}
+      SEED_ADMIN_CELL: ${SEED_ADMIN_CELL}
     volumes:
       - ./data/uploads:/app/data/uploads
     depends_on:

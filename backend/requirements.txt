@@ -14,3 +14,5 @@ langchain-core
 pypdf
 pytesseract
 Pillow
+passlib[bcrypt]
+bcrypt==4.0.1

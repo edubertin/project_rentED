@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class LoginRequest(BaseModel):
@@ -31,9 +31,7 @@ class UserOut(BaseModel):
     name: str
     cell_number: str
     extras: Dict[str, Any]
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AuthMeResponse(BaseModel):
@@ -47,6 +45,14 @@ class UserUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=2, max_length=120)
     cell_number: Optional[str] = Field(default=None, min_length=8, max_length=20)
     extras: Optional[Dict[str, Any]] = None
+
+
+class PropertyImportResponse(BaseModel):
+    doc_type: str
+    fields: Dict[str, Any]
+    summary: str
+    alerts: list[str]
+    confidence: float
 
 
 class PropertyCreate(BaseModel):

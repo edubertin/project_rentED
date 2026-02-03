@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import re
+from typing import List
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,11 +38,13 @@ from app.schemas import (
     UserCreate,
     UserOut,
     UserUpdate,
+    PropertyImportResponse,
     WorkOrderCreate,
     WorkOrderOut,
 )
 from app.storage import get_upload_dir
 from app.worker import process_document_job
+from app.ai import extract_text, prepare_llm_input, run_llm_extraction
 
 app = FastAPI(
     title="rentED API",
@@ -96,6 +99,27 @@ def _valid_username(value: str) -> bool:
 def _valid_name(value: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z ]{2,120}", value))
 
+
+def _sanitize_filename(filename: str) -> str:
+    return Path(filename).name
+
+
+def _upload_photo(file: UploadFile) -> dict:
+    upload_dir = get_upload_dir()
+    suffix = ""
+    if file.filename and "." in file.filename:
+        suffix = "." + file.filename.split(".")[-1]
+    file_id = f"{uuid.uuid4().hex}{suffix}"
+    file_path = upload_dir / file_id
+    with file_path.open("wb") as handle:
+        handle.write(file.file.read())
+    return {
+        "name": file.filename,
+        "path": str(file_path),
+        "url": f"/uploads/{file_id}",
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+    }
+
 def _log_activity(db: Session, event: str, extras: dict, user_id: int | None = None) -> None:
     payload = {"event": event, "timestamp": datetime.now(timezone.utc).isoformat(), **extras}
     db.add(ActivityLog(user_id=user_id, extras=payload))
@@ -126,6 +150,17 @@ def swagger_ui():
         swagger_css_url="/static/docs.css",
         swagger_ui_parameters={"docExpansion": "list"},
     )
+
+
+@app.get("/uploads/{filename}", include_in_schema=False)
+def serve_upload(filename: str) -> FileResponse:
+    safe_name = _sanitize_filename(filename)
+    if safe_name != filename:
+        raise HTTPException(status_code=400, detail="invalid_filename")
+    file_path = get_upload_dir() / safe_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="not_found")
+    return FileResponse(file_path)
 
 
 @app.post("/auth/login", response_model=LoginResponse)
@@ -275,16 +310,25 @@ def update_user(
 
 @app.get("/properties", response_model=list[PropertyOut])
 def list_properties(
-    _: User = Depends(get_current_user), db: Session = Depends(get_db)
+    user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> list[PropertyOut]:
-    return db.execute(select(Property)).scalars().all()
+    stmt = select(Property)
+    if user.role != "admin":
+        stmt = stmt.where(Property.owner_user_id == user.id)
+    return db.execute(stmt).scalars().all()
 
 
 @app.post("/properties", response_model=PropertyOut, status_code=201)
 def create_property(
-    payload: PropertyCreate, _: User = Depends(get_current_user), db: Session = Depends(get_db)
+    payload: PropertyCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> PropertyOut:
-    prop = Property(owner_user_id=payload.owner_user_id, extras=payload.extras)
+    owner_user_id = payload.owner_user_id
+    if user.role != "admin":
+        if owner_user_id != user.id:
+            raise HTTPException(status_code=403, detail="forbidden_owner")
+        owner_user_id = user.id
+    # TODO: enforce at least one photo exists before property is considered active.
+    prop = Property(owner_user_id=owner_user_id, extras=payload.extras)
     db.add(prop)
     db.commit()
     db.refresh(prop)
@@ -295,13 +339,17 @@ def create_property(
 def update_property(
     property_id: int,
     payload: PropertyUpdate,
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> PropertyOut:
     prop = db.get(Property, property_id)
     if prop is None:
         raise HTTPException(status_code=404, detail="not_found")
+    if user.role != "admin" and prop.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail="forbidden_owner")
     if payload.owner_user_id is not None:
+        if user.role != "admin" and payload.owner_user_id != user.id:
+            raise HTTPException(status_code=403, detail="forbidden_owner")
         prop.owner_user_id = payload.owner_user_id
     if payload.extras is not None:
         prop.extras = payload.extras
@@ -312,11 +360,21 @@ def update_property(
 
 @app.delete("/properties/{property_id}", status_code=204)
 def delete_property(
-    property_id: int, _: User = Depends(get_current_user), db: Session = Depends(get_db)
+    property_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> Response:
     prop = db.get(Property, property_id)
     if prop is None:
         raise HTTPException(status_code=404, detail="not_found")
+    if user.role != "admin" and prop.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail="forbidden_owner")
+    photo_items = (prop.extras or {}).get("photos", [])
+    for item in photo_items:
+        path = item.get("path")
+        if path and Path(path).exists():
+            try:
+                Path(path).unlink()
+            except OSError:
+                pass
     doc_ids = (
         db.execute(select(Document.id).where(Document.property_id == property_id))
         .scalars()
@@ -376,6 +434,69 @@ def upload_document(
         raise HTTPException(status_code=503, detail="queue_unavailable") from exc
 
     return doc
+
+
+@app.post("/properties/import", response_model=PropertyImportResponse)
+def import_property(
+    file: UploadFile = File(...),
+    _: User = Depends(get_current_user),
+) -> PropertyImportResponse:
+    upload_dir = get_upload_dir()
+    suffix = ""
+    if file.filename and "." in file.filename:
+        suffix = "." + file.filename.split(".")[-1]
+    file_id = f"import_{uuid.uuid4().hex}{suffix}"
+    file_path = upload_dir / file_id
+    with file_path.open("wb") as handle:
+        handle.write(file.file.read())
+    try:
+        extraction = extract_text(str(file_path))
+        prepared_text, meta = prepare_llm_input(extraction.text)
+        result = run_llm_extraction(prepared_text, file.filename or "")
+        payload = {
+            "doc_type": result.doc_type,
+            "fields": result.fields or {},
+            "summary": result.summary or "",
+            "alerts": result.alerts or [],
+            "confidence": result.confidence or 0.0,
+        }
+        return PropertyImportResponse(**payload)
+    finally:
+        if file_path.exists():
+            try:
+                file_path.unlink()
+            except OSError:
+                pass
+
+
+@app.post("/properties/{property_id}/photos", response_model=PropertyOut)
+def upload_property_photos(
+    property_id: int,
+    files: List[UploadFile] = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PropertyOut:
+    prop = db.get(Property, property_id)
+    if prop is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    if user.role != "admin" and prop.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail="forbidden_owner")
+    if not files:
+        raise HTTPException(status_code=422, detail="photos_required")
+
+    extras = dict(prop.extras or {})
+    photos = list(extras.get("photos", []))
+    if len(photos) + len(files) > 10:
+        raise HTTPException(status_code=422, detail="photo_limit_exceeded")
+
+    for file in files:
+        photos.append(_upload_photo(file))
+
+    extras["photos"] = photos
+    prop.extras = extras
+    db.commit()
+    db.refresh(prop)
+    return prop
 
 
 @app.get("/documents", response_model=list[DocumentOut])

@@ -31,7 +31,6 @@ export default function TopNav() {
       <div className="nav-links">
         <Link href="/properties">Properties</Link>
         <Link href="/work-orders">Work Orders</Link>
-        <Link href="/upload">Upload Document</Link>
         <Link href="/review">Review</Link>
         {user?.role === "admin" && <Link href="/users">Users</Link>}
       </div>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import TopNav from "../../components/TopNav";
-import { apiGet, apiPost } from "../../lib/api";
+import { API_BASE, apiGet, apiPost } from "../../lib/api";
 import { requireAuth } from "../../lib/auth";
 
 export default function PropertyDetail() {
@@ -12,6 +12,15 @@ export default function PropertyDetail() {
   const [workOrders, setWorkOrders] = useState([]);
   const [workTitle, setWorkTitle] = useState("");
   const [error, setError] = useState("");
+
+  function buildDocumentUrl(doc) {
+    const url = doc.extras?.url;
+    if (url) return `${API_BASE}${url}`;
+    const path = doc.extras?.path || "";
+    const filename = path.split("/").pop();
+    if (!filename) return "";
+    return `${API_BASE}/uploads/${filename}`;
+  }
 
   useEffect(() => {
     (async () => {
@@ -67,7 +76,7 @@ export default function PropertyDetail() {
       {property ? (
         <div className="card">
           <div>ID: {property.id}</div>
-          <div>Label: {property.extras?.label || "Property"}</div>
+          <div>Tag: {property.extras?.tag || property.extras?.label || "Property"}</div>
           <div>Owner: {property.owner_user_id}</div>
         </div>
       ) : (
@@ -79,7 +88,15 @@ export default function PropertyDetail() {
           <h3>Documents</h3>
           {documents.map((d) => (
             <div key={d.id}>
-              #{d.id} — {d.extras?.name || "document"} ({d.extras?.status})
+              #{d.id} -{" "}
+              {buildDocumentUrl(d) ? (
+                <a href={buildDocumentUrl(d)} target="_blank" rel="noreferrer">
+                  {d.extras?.name || "document"}
+                </a>
+              ) : (
+                d.extras?.name || "document"
+              )}{" "}
+              ({d.extras?.status})
             </div>
           ))}
         </div>
@@ -87,7 +104,7 @@ export default function PropertyDetail() {
           <h3>Work Orders</h3>
           {workOrders.map((w) => (
             <div key={w.id}>
-              #{w.id} — {w.extras?.title || "work"}
+              #{w.id} - {w.extras?.title || "work"}
             </div>
           ))}
           <form onSubmit={createWorkOrder} style={{ marginTop: 12 }}>

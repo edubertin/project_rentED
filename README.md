@@ -1,7 +1,5 @@
-# rentED API
-
 <p align="center">
-  <img src="frontend/public/brand/logo.png" alt="rentED logo" width="560">
+  <img src="frontend/public/brand/logo.png" alt="rentED logo" width="640">
 </p>
 
 ![CI](https://github.com/edubertin/project_rentED/actions/workflows/ci.yml/badge.svg)
@@ -10,8 +8,9 @@
 ![License](https://img.shields.io/github/license/edubertin/project_rentED)
 ![Release](https://img.shields.io/github/v/release/edubertin/project_rentED)
 
-A minimal FastAPI + Postgres + Redis backend for property management workflows.
-This repository is intentionally lean but structured to grow with clear contracts and migrations.
+rentED is a property management platform with AI-assisted document ingestion, structured data extraction,
+and operational workflows for properties, owners, and work orders. It combines a FastAPI backend,
+Next.js dashboard, and a review-first pipeline for contract data before it is confirmed.
 
 ---
 

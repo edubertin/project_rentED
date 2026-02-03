@@ -27,13 +27,15 @@ This repository is intentionally lean but structured to grow with clear contract
 9. API Usage (curl examples)
 10. Frontend Dashboard (Next.js)
 11. Document Extraction Pipeline (AI)
-12. Dashboard Docs and Swagger
-13. Testing
-14. Security Notes
-15. Troubleshooting
-16. Roadmap / Next Steps
-17. Contributing / Git Workflow
-18. License
+12. Property Import (LLM)
+13. Sample Contracts for Testing
+14. Dashboard Docs and Swagger
+15. Testing
+16. Security Notes
+17. Troubleshooting
+18. Roadmap / Next Steps
+19. Contributing / Git Workflow
+20. License
 
 ---
 
@@ -52,9 +54,11 @@ rentED API is a backend scaffold for property management operations. It includes
 - Healthcheck endpoint: `GET /health`
 - Session login (username/password)
 - CRUD for properties
+- Property photos upload (local storage)
 - Document upload (local storage) + list by status
 - AI extraction pipeline (worker + Redis queue) with confidence scoring
 - Review screen to confirm extracted JSON
+- Import property data from rental contract (LLM prefill)
 - Work orders creation + listing
 - Activity log entries for document processing/review
 - Admin-only user management endpoints (`/users`) + Users dashboard
@@ -250,6 +254,13 @@ curl -X POST http://localhost:8000/properties \
   -d '{"owner_user_id":1,"extras":{"label":"Main"}}'
 ```
 
+### Import Property From Contract (LLM)
+```
+curl -X POST http://localhost:8000/properties/import \
+  -F "file=@./samples/contracts/rented_sample_rental_contract.pdf"
+```
+The extracted contract will be linked to the property when you create it in the UI.
+
 ### Create User (admin-only)
 This endpoint is admin-only. Do not expose it in production without proper auth controls.
 ```
@@ -302,6 +313,13 @@ curl -X PUT http://localhost:8000/properties/1 \
   -d '{"extras":{"label":"Updated"}}'
 ```
 
+### Upload Property Photos (max 10)
+```
+curl -X POST http://localhost:8000/properties/1/photos \
+  -F "files=@./path/to/photo1.jpg" \
+  -F "files=@./path/to/photo2.jpg"
+```
+
 ### Delete Property
 ```
 curl -X DELETE http://localhost:8000/properties/1
@@ -311,6 +329,11 @@ curl -X DELETE http://localhost:8000/properties/1
 ```
 curl -X POST "http://localhost:8000/documents/upload?property_id=1" \
   -F "file=@./path/to/file.pdf"
+```
+
+### Download an Uploaded File
+```
+curl -O http://localhost:8000/uploads/<filename>
 ```
 
 ### List Documents by Status
@@ -352,10 +375,9 @@ curl http://localhost:8000/work-orders
 ## 10. Frontend Dashboard (Next.js)
 The frontend is a minimal Next.js dashboard with login + screens:
 - Login (index)
-- Properties list + create
+- Properties list + create + import
 - Property detail (documents + work orders)
 - Work orders list + create
-- Document upload
 - Users (admin-only)
 
 Run it:
@@ -393,14 +415,38 @@ set NEXT_PUBLIC_API_BASE=http://localhost:8000
 
 ---
 
-## 12. Dashboard Docs and Swagger
+## 12. Property Import (LLM)
+You can upload a rental contract and prefill the Property form:
+- UI: Properties → Import Property
+- API: `POST /properties/import` (returns extracted fields and summary)
+
+This uses the same extraction pipeline and respects:
+- `AI_MODE` (`live` or `mock`)
+- `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_MAX_TOKENS`
+
+The uploaded contract is attached to the Property as a document once the Property is created.
+
+---
+
+## 13. Sample Contracts for Testing
+Sample contract PDF for local testing:
+- `samples/contracts/rented_sample_rental_contract.pdf`
+
+Suggested flow:
+1. Use **Import Property** and upload the sample contract.
+2. Review the prefilled fields.
+3. Add required photos and create the property.
+
+---
+
+## 14. Dashboard Docs and Swagger
 - `/docs` provides an interactive dashboard with inline test widgets.
 - `/swagger` provides full OpenAPI request/response schemas.
 - `/openapi.json` returns raw OpenAPI JSON.
 
 ---
 
-## 13. Testing
+## 15. Testing
 Run tests inside the container:
 ```
 docker compose run --rm api pytest
@@ -408,8 +454,9 @@ docker compose run --rm api pytest
 
 ---
 
-## 14. Security Notes
+## 16. Security Notes
 - All CRUD endpoints require an authenticated session cookie.
+- Non-admin users can only create and manage their own properties.
 - Default Postgres credentials are for local use only.
 - Uploads are stored locally in `./data/uploads` (bind-mounted into the container).
 - Exposed ports (Postgres/Redis) are open to the host. Restrict or remove in production.
@@ -420,7 +467,7 @@ docker compose run --rm api pytest
 
 ---
 
-## 15. Troubleshooting
+## 17. Troubleshooting
 ### Migration errors (missing revision)
 If you see:
 `Can't locate revision identified by '0001_create_items'`
@@ -440,20 +487,19 @@ For local-only use, bind to 127.0.0.1 or remove the port mapping.
 
 ---
 
-## 16. Roadmap / Next Steps
+## 18. Roadmap / Next Steps
 - Define real user fields (email, name, password hash)
 - Add email and password reset flows
-- Add ownership rules and authorization
 - Expand document metadata beyond `extras`
 - Extend activity log coverage to more write operations
 - Add test coverage for error cases and auth
 
 ---
 
-## 17. Contributing / Git Workflow
+## 19. Contributing / Git Workflow
 See `CONTRIBUTING.md` for the full workflow and expectations.
 
 ---
 
-## 18. License
+## 20. License
 MIT. See `LICENSE` for details.

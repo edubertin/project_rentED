@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 ## [Unreleased]
 - TBD.
 
+## [0.1.5] - 2026-02-03
+- Add property import flow using LLM to prefill the create form.
+- Add property photo uploads (up to 10) with thumbnail preview.
+- Link uploaded contract documents to property details with download links.
+- Enforce property ownership visibility for non-admin users.
+- Update docs and samples for the new import workflow.
+
 ## [0.1.4] - 2026-02-03
 - Add admin-only Users dashboard with create/edit/delete flows.
 - Enforce stricter username, name, and password validation rules.

@@ -70,6 +70,24 @@ def _cleanup_by_username(username: str) -> None:
         session.close()
 
 
+def _cleanup_test_admins() -> None:
+    session = SessionLocal()
+    try:
+        admins = (
+            session.execute(
+                select(User).where(User.role == "admin", User.username != "admin")
+            )
+            .scalars()
+            .all()
+        )
+        for admin in admins:
+            session.execute(delete(Session).where(Session.user_id == admin.id))
+            session.execute(delete(User).where(User.id == admin.id))
+        session.commit()
+    finally:
+        session.close()
+
+
 def test_healthcheck():
     resp = client.get("/health")
     assert resp.status_code == 200
@@ -257,3 +275,4 @@ def test_admin_create_user_and_delete():
     delete_resp = client.delete(f"/users/{user_id}")
     assert delete_resp.status_code == 204
     _cleanup_by_username(admin_username)
+    _cleanup_test_admins()

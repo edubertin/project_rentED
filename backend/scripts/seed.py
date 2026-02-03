@@ -18,8 +18,8 @@ def seed() -> None:
     session = SessionLocal()
     try:
         admin = session.execute(
-            select(User).where(User.username == ADMIN_USERNAME)
-        ).scalar_one_or_none()
+            select(User).where(User.role == ADMIN_ROLE).order_by(User.id.asc())
+        ).scalars().first()
         if admin is None:
             admin = User(
                 username=ADMIN_USERNAME,

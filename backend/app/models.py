@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Integer, String
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import text
 
@@ -9,8 +9,11 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True)
+    username = Column(String(80), nullable=False, unique=True)
+    password_hash = Column(String(255), nullable=False)
     role = Column(String(50), nullable=False)
-    # TODO: define core user fields (e.g., name/email) beyond extras.
+    name = Column(String(120), nullable=False)
+    cell_number = Column(String(20), nullable=False)
     extras = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
 
 
@@ -72,3 +75,13 @@ class ActivityLog(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     # TODO: define core activity fields beyond extras.
     extras = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+
+
+class Session(Base):
+    __tablename__ = "sessions"
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)

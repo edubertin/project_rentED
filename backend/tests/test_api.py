@@ -8,18 +8,28 @@ from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
 
 from app.db import SessionLocal
+from app.auth import hash_password
 from app.main import app
-from app.models import Document, DocumentExtraction, Property, User, WorkOrder
+from app.models import Document, DocumentExtraction, Property, Session, User, WorkOrder
 from app.worker import process_document_job
 
 
 client = TestClient(app)
 
 
-def _create_user(role: str) -> int:
+def _create_user(role: str, username: str | None = None, password: str | None = None) -> int:
+    username = username or f"user{uuid.uuid4().hex[:8]}"
+    password = password or "Test12345!"
     session = SessionLocal()
     try:
-        user = User(role=role, extras={"name": "Test"})
+        user = User(
+            username=username,
+            password_hash=hash_password(password),
+            role=role,
+            name="Test User",
+            cell_number="(000) 00000 0000",
+            extras={"name": "Test"},
+        )
         session.add(user)
         session.commit()
         session.refresh(user)
@@ -28,23 +38,20 @@ def _create_user(role: str) -> int:
         session.close()
 
 
-def _cleanup_by_role(role: str) -> None:
+def _cleanup_by_username(username: str) -> None:
     session = SessionLocal()
     try:
-        user = session.execute(select(User).where(User.role == role)).scalar_one_or_none()
+        user = session.execute(select(User).where(User.username == username)).scalar_one_or_none()
         if user:
+            session.execute(delete(Session).where(Session.user_id == user.id))
             prop_ids = (
-                session.execute(
-                    select(Property.id).where(Property.owner_user_id == user.id)
-                )
+                session.execute(select(Property.id).where(Property.owner_user_id == user.id))
                 .scalars()
                 .all()
             )
             if prop_ids:
                 doc_ids = (
-                    session.execute(
-                        select(Document.id).where(Document.property_id.in_(prop_ids))
-                    )
+                    session.execute(select(Document.id).where(Document.property_id.in_(prop_ids)))
                     .scalars()
                     .all()
                 )
@@ -69,33 +76,33 @@ def test_healthcheck():
     assert resp.json()["status"] == "ok"
 
 
-def test_login_with_role():
-    role = f"test_admin_{uuid.uuid4().hex}"
-    _create_user(role)
-    resp = client.post("/auth/login", json={"role": role})
+def test_auth_required():
+    resp = client.get("/properties")
+    assert resp.status_code == 401
+
+
+def _login(username: str, password: str):
+    return client.post("/auth/login", json={"username": username, "password": password})
+
+
+def test_login_with_username_password():
+    role = "admin"
+    username = f"admin{uuid.uuid4().hex[:8]}"
+    password = "Admin12345!"
+    _create_user(role, username=username, password=password)
+    resp = _login(username, password)
     assert resp.status_code == 200
     data = resp.json()
-    assert "access_token" in data
-    _cleanup_by_role(role)
-
-
-def test_create_user():
-    role = f"test_user_{uuid.uuid4().hex}"
-    resp = client.post("/users", json={"role": role, "extras": {"name": "Test"}})
-    assert resp.status_code == 201
-    user_id = resp.json()["id"]
-    session = SessionLocal()
-    try:
-        db_user = session.get(User, user_id)
-        assert db_user is not None
-    finally:
-        session.close()
-        _cleanup_by_role(role)
+    assert data["username"] == username
+    _cleanup_by_username(username)
 
 
 def test_properties_crud():
-    role = f"test_owner_{uuid.uuid4().hex}"
-    user_id = _create_user(role)
+    role = "admin"
+    username = f"admin{uuid.uuid4().hex[:8]}"
+    password = "Admin12345!"
+    user_id = _create_user(role, username=username, password=password)
+    _login(username, password)
     resp = client.post(
         "/properties",
         json={"owner_user_id": user_id, "extras": {"label": "Teste"}},
@@ -109,12 +116,15 @@ def test_properties_crud():
 
     resp = client.delete(f"/properties/{prop_id}")
     assert resp.status_code == 204
-    _cleanup_by_role(role)
+    _cleanup_by_username(username)
 
 
 def test_document_upload_and_process(tmp_path):
-    role = f"test_docs_{uuid.uuid4().hex}"
-    user_id = _create_user(role)
+    role = "admin"
+    username = f"admin{uuid.uuid4().hex[:8]}"
+    password = "Admin12345!"
+    user_id = _create_user(role, username=username, password=password)
+    _login(username, password)
     prop = client.post(
         "/properties",
         json={"owner_user_id": user_id, "extras": {"label": "Docs"}},
@@ -140,12 +150,14 @@ def test_document_upload_and_process(tmp_path):
     stored_path = doc["extras"]["path"]
     if stored_path and os.path.exists(stored_path):
         os.remove(stored_path)
-    _cleanup_by_role(role)
+    _cleanup_by_username(username)
 
 
 def test_worker_pipeline(tmp_path):
-    role = f"test_worker_{uuid.uuid4().hex}"
-    user_id = _create_user(role)
+    role = "admin"
+    username = f"admin{uuid.uuid4().hex[:8]}"
+    password = "Admin12345!"
+    user_id = _create_user(role, username=username, password=password)
     session = SessionLocal()
     try:
         prop = Property(owner_user_id=user_id, extras={"label": "Worker"})
@@ -180,12 +192,15 @@ def test_worker_pipeline(tmp_path):
         assert extraction.extras.get("text") is not None
     finally:
         session.close()
-        _cleanup_by_role(role)
+        _cleanup_by_username(username)
 
 
 def test_review_document(tmp_path):
-    role = f"test_review_{uuid.uuid4().hex}"
-    user_id = _create_user(role)
+    role = "admin"
+    username = f"admin{uuid.uuid4().hex[:8]}"
+    password = "Admin12345!"
+    user_id = _create_user(role, username=username, password=password)
+    _login(username, password)
     prop = client.post(
         "/properties",
         json={"owner_user_id": user_id, "extras": {"label": "Review"}},
@@ -216,4 +231,29 @@ def test_review_document(tmp_path):
     stored_path = resp.json()["extras"]["path"]
     if stored_path and os.path.exists(stored_path):
         os.remove(stored_path)
-    _cleanup_by_role(role)
+    _cleanup_by_username(username)
+
+
+def test_admin_create_user_and_delete():
+    admin_username = f"admin{uuid.uuid4().hex[:8]}"
+    admin_password = "Admin12345!"
+    _create_user("admin", username=admin_username, password=admin_password)
+    _login(admin_username, admin_password)
+
+    resp = client.post(
+        "/users",
+        json={
+            "username": f"user{uuid.uuid4().hex[:6]}",
+            "password": "User12345!",
+            "role": "property_owner",
+            "name": "Test Owner",
+            "cell_number": "(111) 11111 1111",
+            "extras": {},
+        },
+    )
+    assert resp.status_code == 201
+    user_id = resp.json()["id"]
+
+    delete_resp = client.delete(f"/users/{user_id}")
+    assert delete_resp.status_code == 204
+    _cleanup_by_username(admin_username)

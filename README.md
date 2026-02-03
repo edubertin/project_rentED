@@ -40,7 +40,7 @@ This repository is intentionally lean but structured to grow with clear contract
 ## 1. Overview
 rentED API is a backend scaffold for property management operations. It includes:
 - Core data model with migrations
-- JWT login placeholder
+- Session-based authentication (HTTP-only cookie)
 - CRUD endpoints for properties
 - Document upload and AI-backed extraction pipeline
 - Work orders endpoint
@@ -50,14 +50,14 @@ rentED API is a backend scaffold for property management operations. It includes
 
 ## 2. Features
 - Healthcheck endpoint: `GET /health`
-- JWT login (role-based placeholder)
+- Session login (username/password)
 - CRUD for properties
 - Document upload (local storage) + list by status
 - AI extraction pipeline (worker + Redis queue) with confidence scoring
 - Review screen to confirm extracted JSON
 - Work orders creation + listing
 - Activity log entries for document processing/review
-- Dev-only user bootstrap endpoint (`/users`)
+- Admin-only user management endpoints (`/users`) + Users dashboard
 - Alembic migrations
 - Dashboard docs at `/docs`
 - Swagger UI at `/swagger`
@@ -73,6 +73,7 @@ rentED API is a backend scaffold for property management operations. It includes
 - RQ
 - LangChain (OpenAI)
 - pypdf + optional OCR
+- passlib (bcrypt)
 - Docker Compose
 
 ---
@@ -87,6 +88,7 @@ backend/
     main.py
     models.py
     schemas.py
+    ai.py
     storage.py
     static/
       docs.html
@@ -166,10 +168,15 @@ Defined in `.env.example`:
 - `AI_CONFIDENCE_THRESHOLD`
 - `OCR_MODE` (`none` or `tesseract`)
 - `AI_LLM_INPUT_MAX_CHARS` (max characters sent to the LLM)
+- `SESSION_TTL_MINUTES`
+- `SESSION_COOKIE_NAME`
+- `COOKIE_SECURE`
+- `SEED_ADMIN_USERNAME`
+- `SEED_ADMIN_PASSWORD`
+- `SEED_ADMIN_NAME`
+- `SEED_ADMIN_CELL`
 
 Optional:
-- `JWT_SECRET` (default: `dev-secret`)
-- `JWT_TTL_MINUTES` (default: `60`)
 - `UPLOAD_DIR` (default: `/app/data/uploads`)
 - `NEXT_PUBLIC_API_BASE` (frontend, default: `http://localhost:8000`)
 
@@ -195,6 +202,10 @@ Seed script creates:
 - 1 admin user
 - 2 properties owned by admin
 
+Defaults (override in `.env`):
+- Username: `SEED_ADMIN_USERNAME` (default `admin`)
+- Password: `SEED_ADMIN_PASSWORD` (default `Admin123!`)
+
 Run:
 ```
 docker compose run --rm api python scripts/seed.py
@@ -208,11 +219,28 @@ docker compose run --rm api python scripts/seed.py
 curl http://localhost:8000/health
 ```
 
-### Login (role-based placeholder)
+### Login
 ```
 curl -X POST http://localhost:8000/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"role":"admin"}'
+  -d '{"username":"admin","password":"Admin123!"}'
+```
+Use cookies for authenticated calls:
+```
+curl -c cookies.txt -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"Admin123!"}'
+curl -b cookies.txt http://localhost:8000/properties
+```
+
+### Current User
+```
+curl http://localhost:8000/auth/me
+```
+
+### Logout
+```
+curl -X POST http://localhost:8000/auth/logout
 ```
 
 ### Create Property
@@ -222,13 +250,45 @@ curl -X POST http://localhost:8000/properties \
   -d '{"owner_user_id":1,"extras":{"label":"Main"}}'
 ```
 
-### Create User (dev-only)
-This endpoint is for development/testing only. Do not expose it in production.
+### Create User (admin-only)
+This endpoint is admin-only. Do not expose it in production without proper auth controls.
 ```
 curl -X POST http://localhost:8000/users \
   -H "Content-Type: application/json" \
-  -d '{"role":"owner","extras":{"name":"Test"}}'
+  -d '{"username":"owner1","password":"Owner123!","role":"property_owner","name":"Owner","cell_number":"(111) 11111 1111","extras":{}}'
 ```
+
+Roles:
+- `admin`
+- `real_estate`
+- `finance`
+- `service_provider`
+- `property_owner`
+
+Username rules:
+- One word, letters and numbers only (3–80 chars).
+
+Name rules:
+- Letters and spaces only (2–120 chars).
+
+Password rules:
+- Min 8 chars, includes 1 uppercase, 1 number, 1 special.
+
+Cell number format:
+- `(xxx) xxxxx xxxx`
+
+### Update User (admin-only)
+```
+curl -X PUT http://localhost:8000/users/2 \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Owner Updated","cell_number":"(111) 11111 1111"}'
+```
+
+### Delete User (admin-only)
+```
+curl -X DELETE http://localhost:8000/users/2
+```
+Note: admin users are protected from deletion.
 
 ### List Properties
 ```
@@ -290,11 +350,13 @@ curl http://localhost:8000/work-orders
 ---
 
 ## 10. Frontend Dashboard (Next.js)
-The frontend is a minimal Next.js dashboard (no fancy styling) with 4 screens:
+The frontend is a minimal Next.js dashboard with login + screens:
+- Login (index)
 - Properties list + create
 - Property detail (documents + work orders)
 - Work orders list + create
 - Document upload
+- Users (admin-only)
 
 Run it:
 ```
@@ -304,7 +366,7 @@ npm run dev
 ```
 
 Then open:
-- `http://localhost:3000` (or `:3001` if 3000 is in use)
+- `http://localhost:3000` (login)
 
 If the API is on a different host/port:
 ```
@@ -347,12 +409,14 @@ docker compose run --rm api pytest
 ---
 
 ## 14. Security Notes
-- All CRUD endpoints are currently unauthenticated (dev-only). Add auth before production.
+- All CRUD endpoints require an authenticated session cookie.
 - Default Postgres credentials are for local use only.
 - Uploads are stored locally in `./data/uploads` (bind-mounted into the container).
 - Exposed ports (Postgres/Redis) are open to the host. Restrict or remove in production.
 - Store `OPENAI_API_KEY` securely and never commit it.
 - Known advisory: Next.js has a high-severity advisory affecting Image Optimizer and Server Components. We keep Next 14.2.35 during development to avoid breaking changes and plan to upgrade to Next 16 before production.
+- Session cookies are httpOnly; set `COOKIE_SECURE=true` when using HTTPS.
+- Admin accounts cannot be deleted via the API.
 
 ---
 
@@ -378,7 +442,7 @@ For local-only use, bind to 127.0.0.1 or remove the port mapping.
 
 ## 16. Roadmap / Next Steps
 - Define real user fields (email, name, password hash)
-- Replace role-based login with credential validation
+- Add email and password reset flows
 - Add ownership rules and authorization
 - Expand document metadata beyond `extras`
 - Extend activity log coverage to more write operations

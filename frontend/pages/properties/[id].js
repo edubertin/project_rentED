@@ -1,8 +1,11 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/router";
 import TopNav from "../../components/TopNav";
 import { apiGet, apiPost } from "../../lib/api";
+import { requireAuth } from "../../lib/auth";
 
 export default function PropertyDetail() {
+  const router = useRouter();
   const [propertyId, setPropertyId] = useState(null);
   const [property, setProperty] = useState(null);
   const [documents, setDocuments] = useState([]);
@@ -11,9 +14,14 @@ export default function PropertyDetail() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const id = window.location.pathname.split("/").pop();
-    setPropertyId(id);
-  }, []);
+    (async () => {
+      const user = await requireAuth(router);
+      if (user) {
+        const id = router.query.id;
+        if (id) setPropertyId(id);
+      }
+    })();
+  }, [router]);
 
   async function loadAll(id) {
     if (!id) return;

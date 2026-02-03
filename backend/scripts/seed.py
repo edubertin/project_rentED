@@ -2,21 +2,33 @@ import os
 
 from sqlalchemy import select
 
+from app.auth import hash_password
 from app.db import SessionLocal
 from app.models import Property, User
 
 
 ADMIN_ROLE = "admin"
+ADMIN_USERNAME = os.getenv("SEED_ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("SEED_ADMIN_PASSWORD", "Admin123!")
+ADMIN_NAME = os.getenv("SEED_ADMIN_NAME", "Admin User")
+ADMIN_CELL = os.getenv("SEED_ADMIN_CELL", "(000) 00000 0000")
 
 
 def seed() -> None:
     session = SessionLocal()
     try:
         admin = session.execute(
-            select(User).where(User.role == ADMIN_ROLE)
+            select(User).where(User.username == ADMIN_USERNAME)
         ).scalar_one_or_none()
         if admin is None:
-            admin = User(role=ADMIN_ROLE, extras={"name": "Admin"})
+            admin = User(
+                username=ADMIN_USERNAME,
+                password_hash=hash_password(ADMIN_PASSWORD),
+                role=ADMIN_ROLE,
+                name=ADMIN_NAME,
+                cell_number=ADMIN_CELL,
+                extras={"name": ADMIN_NAME},
+            )
             session.add(admin)
             session.flush()
 

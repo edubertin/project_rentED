@@ -36,7 +36,6 @@ from app.schemas import (
     PropertyUpdate,
     UserCreate,
     UserOut,
-    UserUpdate,
     WorkOrderCreate,
     WorkOrderOut,
 )
@@ -83,18 +82,13 @@ def _valid_cell_number(value: str) -> bool:
 def _valid_password(value: str) -> bool:
     if len(value) < 8 or len(value) > 72:
         return False
-    has_upper = bool(re.search(r"[A-Z]", value))
+    has_letter = bool(re.search(r"[A-Za-z]", value))
     has_number = bool(re.search(r"\d", value))
-    has_special = bool(re.search(r"[^A-Za-z0-9]", value))
-    return has_upper and has_number and has_special
+    return has_letter and has_number
 
 
 def _valid_username(value: str) -> bool:
-    return bool(re.fullmatch(r"[A-Za-z0-9]{3,80}", value))
-
-
-def _valid_name(value: str) -> bool:
-    return bool(re.fullmatch(r"[A-Za-z ]{2,120}", value))
+    return bool(re.fullmatch(r"[a-zA-Z0-9._-]{3,80}", value))
 
 def _log_activity(db: Session, event: str, extras: dict, user_id: int | None = None) -> None:
     payload = {"event": event, "timestamp": datetime.now(timezone.utc).isoformat(), **extras}
@@ -192,8 +186,6 @@ def create_user(payload: UserCreate, _: User = Depends(require_admin), db: Sessi
         raise HTTPException(status_code=422, detail="invalid_username")
     if not _valid_password(payload.password):
         raise HTTPException(status_code=422, detail="weak_password")
-    if not _valid_name(payload.name):
-        raise HTTPException(status_code=422, detail="invalid_name")
     if not _valid_cell_number(payload.cell_number):
         raise HTTPException(status_code=422, detail="invalid_cell_number")
     user = User(
@@ -223,54 +215,10 @@ def delete_user(
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="not_found")
-    if user.role == "admin":
-        raise HTTPException(status_code=403, detail="admin_protected")
     db.execute(delete(UserSession).where(UserSession.user_id == user_id))
     db.delete(user)
     db.commit()
     return Response(status_code=204)
-
-
-@app.put("/users/{user_id}", response_model=UserOut)
-def update_user(
-    user_id: int,
-    payload: UserUpdate,
-    _: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-) -> UserOut:
-    user = db.get(User, user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="not_found")
-    if payload.role is not None and payload.role not in ALLOWED_ROLES:
-        raise HTTPException(status_code=422, detail="invalid_role")
-    if payload.username is not None and not _valid_username(payload.username):
-        raise HTTPException(status_code=422, detail="invalid_username")
-    if payload.password is not None and not _valid_password(payload.password):
-        raise HTTPException(status_code=422, detail="weak_password")
-    if payload.name is not None and not _valid_name(payload.name):
-        raise HTTPException(status_code=422, detail="invalid_name")
-    if payload.cell_number is not None and not _valid_cell_number(payload.cell_number):
-        raise HTTPException(status_code=422, detail="invalid_cell_number")
-
-    if payload.username is not None:
-        user.username = payload.username
-    if payload.password:
-        user.password_hash = hash_password(payload.password)
-    if payload.role is not None:
-        user.role = payload.role
-    if payload.name is not None:
-        user.name = payload.name
-    if payload.cell_number is not None:
-        user.cell_number = payload.cell_number
-    if payload.extras is not None:
-        user.extras = payload.extras
-    try:
-        db.commit()
-        db.refresh(user)
-    except Exception as exc:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="username_exists") from exc
-    return user
 
 
 @app.get("/properties", response_model=list[PropertyOut])

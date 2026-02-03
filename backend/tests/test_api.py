@@ -10,7 +10,7 @@ from sqlalchemy import delete, select
 from app.db import SessionLocal
 from app.auth import hash_password
 from app.main import app
-from app.models import Document, DocumentExtraction, Property, Session, User, WorkOrder
+from app.models import Document, DocumentExtraction, Property, User, WorkOrder
 from app.worker import process_document_job
 
 
@@ -18,7 +18,7 @@ client = TestClient(app)
 
 
 def _create_user(role: str, username: str | None = None, password: str | None = None) -> int:
-    username = username or f"user{uuid.uuid4().hex[:8]}"
+    username = username or f"user_{uuid.uuid4().hex[:8]}"
     password = password or "Test12345!"
     session = SessionLocal()
     try:
@@ -43,7 +43,6 @@ def _cleanup_by_username(username: str) -> None:
     try:
         user = session.execute(select(User).where(User.username == username)).scalar_one_or_none()
         if user:
-            session.execute(delete(Session).where(Session.user_id == user.id))
             prop_ids = (
                 session.execute(select(Property.id).where(Property.owner_user_id == user.id))
                 .scalars()
@@ -87,7 +86,7 @@ def _login(username: str, password: str):
 
 def test_login_with_username_password():
     role = "admin"
-    username = f"admin{uuid.uuid4().hex[:8]}"
+    username = f"admin_{uuid.uuid4().hex[:8]}"
     password = "Admin12345!"
     _create_user(role, username=username, password=password)
     resp = _login(username, password)
@@ -99,7 +98,7 @@ def test_login_with_username_password():
 
 def test_properties_crud():
     role = "admin"
-    username = f"admin{uuid.uuid4().hex[:8]}"
+    username = f"admin_{uuid.uuid4().hex[:8]}"
     password = "Admin12345!"
     user_id = _create_user(role, username=username, password=password)
     _login(username, password)
@@ -121,7 +120,7 @@ def test_properties_crud():
 
 def test_document_upload_and_process(tmp_path):
     role = "admin"
-    username = f"admin{uuid.uuid4().hex[:8]}"
+    username = f"admin_{uuid.uuid4().hex[:8]}"
     password = "Admin12345!"
     user_id = _create_user(role, username=username, password=password)
     _login(username, password)
@@ -155,7 +154,7 @@ def test_document_upload_and_process(tmp_path):
 
 def test_worker_pipeline(tmp_path):
     role = "admin"
-    username = f"admin{uuid.uuid4().hex[:8]}"
+    username = f"admin_{uuid.uuid4().hex[:8]}"
     password = "Admin12345!"
     user_id = _create_user(role, username=username, password=password)
     session = SessionLocal()
@@ -197,7 +196,7 @@ def test_worker_pipeline(tmp_path):
 
 def test_review_document(tmp_path):
     role = "admin"
-    username = f"admin{uuid.uuid4().hex[:8]}"
+    username = f"admin_{uuid.uuid4().hex[:8]}"
     password = "Admin12345!"
     user_id = _create_user(role, username=username, password=password)
     _login(username, password)
@@ -235,7 +234,7 @@ def test_review_document(tmp_path):
 
 
 def test_admin_create_user_and_delete():
-    admin_username = f"admin{uuid.uuid4().hex[:8]}"
+    admin_username = f"admin_{uuid.uuid4().hex[:8]}"
     admin_password = "Admin12345!"
     _create_user("admin", username=admin_username, password=admin_password)
     _login(admin_username, admin_password)
@@ -243,7 +242,7 @@ def test_admin_create_user_and_delete():
     resp = client.post(
         "/users",
         json={
-            "username": f"user{uuid.uuid4().hex[:6]}",
+            "username": f"user_{uuid.uuid4().hex[:6]}",
             "password": "User12345!",
             "role": "property_owner",
             "name": "Test Owner",

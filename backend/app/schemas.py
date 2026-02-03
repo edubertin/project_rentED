@@ -40,15 +40,6 @@ class AuthMeResponse(BaseModel):
     user: UserOut | None
 
 
-class UserUpdate(BaseModel):
-    username: Optional[str] = Field(default=None, min_length=3, max_length=80)
-    password: Optional[str] = Field(default=None, min_length=8, max_length=72)
-    role: Optional[str] = Field(default=None, min_length=1)
-    name: Optional[str] = Field(default=None, min_length=2, max_length=120)
-    cell_number: Optional[str] = Field(default=None, min_length=8, max_length=20)
-    extras: Optional[Dict[str, Any]] = None
-
-
 class PropertyCreate(BaseModel):
     owner_user_id: int
     extras: Dict[str, Any] = Field(default_factory=dict)

@@ -10,7 +10,6 @@ export default function PropertiesPage() {
   const [properties, setProperties] = useState([]);
   const [ownerUserId, setOwnerUserId] = useState("");
   const [label, setLabel] = useState("");
-  const [role, setRole] = useState("property_owner");
   const [error, setError] = useState("");
 
   async function load() {
@@ -52,24 +51,6 @@ export default function PropertiesPage() {
     }
   }
 
-  async function createUser(e) {
-    e.preventDefault();
-    setError("");
-    try {
-      const user = await apiPost("/users", {
-        username: `user_${Date.now()}`,
-        password: "Temp12345!",
-        role,
-        name: "New User",
-        cell_number: "(000) 00000 0000",
-        extras: {},
-      });
-      setOwnerUserId(String(user.id));
-    } catch (err) {
-      setError("Failed to create user");
-    }
-  }
-
   async function removeProperty(id) {
     setError("");
     try {
@@ -87,50 +68,62 @@ export default function PropertiesPage() {
       <h1>Properties</h1>
       <div className="grid">
         <div className="card">
-          <h3>Create User</h3>
-          <form onSubmit={createUser}>
-            <label>Role</label>
-            <select value={role} onChange={(e) => setRole(e.target.value)}>
-              <option value="admin">admin</option>
-              <option value="real_estate">real_estate</option>
-              <option value="finance">finance</option>
-              <option value="service_provider">service_provider</option>
-              <option value="property_owner">property_owner</option>
-            </select>
-            <small>Admin-only. Update username/password after creation.</small>
-            <div style={{ marginTop: 12 }}>
-              <button type="submit">Create User</button>
-            </div>
-          </form>
-        </div>
-        <div className="card">
-          <h3>Create Property</h3>
+          <div className="card-header">
+            <h3>Create Property</h3>
+          </div>
           <form onSubmit={createProperty}>
             <label>Owner User ID</label>
             <input value={ownerUserId} onChange={(e) => setOwnerUserId(e.target.value)} />
             <label>Label</label>
             <input value={label} onChange={(e) => setLabel(e.target.value)} />
-            <small>Use the user created above or an existing user id.</small>
+            <small className="muted">Use an existing user id from the Users page.</small>
             <div style={{ marginTop: 12 }}>
-              <button type="submit">Create</button>
+              <button type="submit" className="btn-primary">Create</button>
             </div>
           </form>
         </div>
         <div className="card">
-          <h3>List</h3>
-          {properties.map((p) => (
-            <div key={p.id} style={{ marginBottom: 8 }}>
-              <Link href={`/properties/${p.id}`}>
-                #{p.id} {p.extras?.label || "Property"}
-              </Link>
-              <button style={{ marginLeft: 8 }} onClick={() => removeProperty(p.id)}>
-                Delete
-              </button>
-            </div>
-          ))}
+          <div className="card-header">
+            <h3>List</h3>
+          </div>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Label</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {properties.map((p) => (
+                  <tr key={p.id}>
+                    <td>{p.id}</td>
+                    <td>
+                      <Link href={`/properties/${p.id}`}>
+                        {p.extras?.label || "Property"}
+                      </Link>
+                    </td>
+                    <td>
+                      <button className="btn-danger" onClick={() => removeProperty(p.id)}>
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {properties.length === 0 && (
+                  <tr>
+                    <td colSpan="3" className="muted">
+                      No properties yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-      {error && <p style={{ color: "salmon" }}>{error}</p>}
+      {error && <p className="error">{error}</p>}
     </div>
   );
 }

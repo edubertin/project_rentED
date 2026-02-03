@@ -57,7 +57,7 @@ rentED API is a backend scaffold for property management operations. It includes
 - Review screen to confirm extracted JSON
 - Work orders creation + listing
 - Activity log entries for document processing/review
-- Admin-only user management endpoints (`/users`)
+- Admin-only user management endpoints (`/users`) + Users dashboard
 - Alembic migrations
 - Dashboard docs at `/docs`
 - Swagger UI at `/swagger`
@@ -265,8 +265,30 @@ Roles:
 - `service_provider`
 - `property_owner`
 
+Username rules:
+- One word, letters and numbers only (3–80 chars).
+
+Name rules:
+- Letters and spaces only (2–120 chars).
+
+Password rules:
+- Min 8 chars, includes 1 uppercase, 1 number, 1 special.
+
 Cell number format:
 - `(xxx) xxxxx xxxx`
+
+### Update User (admin-only)
+```
+curl -X PUT http://localhost:8000/users/2 \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Owner Updated","cell_number":"(111) 11111 1111"}'
+```
+
+### Delete User (admin-only)
+```
+curl -X DELETE http://localhost:8000/users/2
+```
+Note: admin users are protected from deletion.
 
 ### List Properties
 ```
@@ -328,12 +350,13 @@ curl http://localhost:8000/work-orders
 ---
 
 ## 10. Frontend Dashboard (Next.js)
-The frontend is a minimal Next.js dashboard (no fancy styling) with login + 4 screens:
+The frontend is a minimal Next.js dashboard with login + screens:
 - Login (index)
 - Properties list + create
 - Property detail (documents + work orders)
 - Work orders list + create
 - Document upload
+- Users (admin-only)
 
 Run it:
 ```
@@ -393,6 +416,7 @@ docker compose run --rm api pytest
 - Store `OPENAI_API_KEY` securely and never commit it.
 - Known advisory: Next.js has a high-severity advisory affecting Image Optimizer and Server Components. We keep Next 14.2.35 during development to avoid breaking changes and plan to upgrade to Next 16 before production.
 - Session cookies are httpOnly; set `COOKIE_SECURE=true` when using HTTPS.
+- Admin accounts cannot be deleted via the API.
 
 ---
 

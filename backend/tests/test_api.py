@@ -10,7 +10,16 @@ from sqlalchemy import delete, select
 from app.db import SessionLocal
 from app.auth import hash_password
 from app.main import app
-from app.models import Document, DocumentExtraction, Property, Session, User, WorkOrder
+from app.models import (
+    ActivityLog,
+    Document,
+    DocumentExtraction,
+    Property,
+    PropertyContract,
+    Session,
+    User,
+    WorkOrder,
+)
 from app.worker import process_document_job
 
 
@@ -28,6 +37,8 @@ def _create_user(role: str, username: str | None = None, password: str | None = 
             role=role,
             name="Test User",
             cell_number="(000) 00000 0000",
+            email=f"{username}@example.com",
+            cpf="12345678901",
             extras={"name": "Test"},
         )
         session.add(user)
@@ -44,12 +55,17 @@ def _cleanup_by_username(username: str) -> None:
         user = session.execute(select(User).where(User.username == username)).scalar_one_or_none()
         if user:
             session.execute(delete(Session).where(Session.user_id == user.id))
+            session.execute(delete(ActivityLog).where(ActivityLog.user_id == user.id))
+            session.commit()
             prop_ids = (
                 session.execute(select(Property.id).where(Property.owner_user_id == user.id))
                 .scalars()
                 .all()
             )
             if prop_ids:
+                session.execute(
+                    delete(PropertyContract).where(PropertyContract.property_id.in_(prop_ids))
+                )
                 doc_ids = (
                     session.execute(select(Document.id).where(Document.property_id.in_(prop_ids)))
                     .scalars()
@@ -73,19 +89,17 @@ def _cleanup_by_username(username: str) -> None:
 def _cleanup_test_admins() -> None:
     session = SessionLocal()
     try:
-        admins = (
+        usernames = (
             session.execute(
-                select(User).where(User.role == "admin", User.username != "admin")
+                select(User.username).where(User.role == "admin", User.username != "admin")
             )
             .scalars()
             .all()
         )
-        for admin in admins:
-            session.execute(delete(Session).where(Session.user_id == admin.id))
-            session.execute(delete(User).where(User.id == admin.id))
-        session.commit()
     finally:
         session.close()
+    for username in usernames:
+        _cleanup_by_username(username)
 
 
 def test_healthcheck():
@@ -123,7 +137,19 @@ def test_properties_crud():
     _login(username, password)
     resp = client.post(
         "/properties",
-        json={"owner_user_id": user_id, "extras": {"label": "Teste"}},
+        json={
+            "owner_user_id": user_id,
+            "extras": {
+                "tag": "Teste",
+                "property_address": "Rua Teste, 123",
+                "bedrooms": 2,
+                "bathrooms": 1,
+                "parking_spaces": 1,
+                "is_rented": False,
+                "desired_rent_value": 250000,
+                "rent_currency": "BRL",
+            },
+        },
     )
     assert resp.status_code == 201
     prop_id = resp.json()["id"]
@@ -145,7 +171,19 @@ def test_document_upload_and_process(tmp_path):
     _login(username, password)
     prop = client.post(
         "/properties",
-        json={"owner_user_id": user_id, "extras": {"label": "Docs"}},
+        json={
+            "owner_user_id": user_id,
+            "extras": {
+                "tag": "Docs",
+                "property_address": "Rua Teste, 456",
+                "bedrooms": 1,
+                "bathrooms": 1,
+                "parking_spaces": 0,
+                "is_rented": False,
+                "desired_rent_value": 200000,
+                "rent_currency": "BRL",
+            },
+        },
     ).json()
     file_path = tmp_path / "doc.txt"
     file_path.write_text("conteudo")
@@ -221,7 +259,19 @@ def test_review_document(tmp_path):
     _login(username, password)
     prop = client.post(
         "/properties",
-        json={"owner_user_id": user_id, "extras": {"label": "Review"}},
+        json={
+            "owner_user_id": user_id,
+            "extras": {
+                "tag": "Review",
+                "property_address": "Rua Teste, 789",
+                "bedrooms": 3,
+                "bathrooms": 2,
+                "parking_spaces": 2,
+                "is_rented": False,
+                "desired_rent_value": 300000,
+                "rent_currency": "BRL",
+            },
+        },
     ).json()
     file_path = tmp_path / "review.txt"
     file_path.write_text("review-data")
@@ -266,6 +316,8 @@ def test_admin_create_user_and_delete():
             "role": "property_owner",
             "name": "Test Owner",
             "cell_number": "(111) 11111 1111",
+            "email": "owner@example.com",
+            "cpf": "98765432100",
             "extras": {},
         },
     )

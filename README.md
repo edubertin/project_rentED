@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/public/brand/logo.png" alt="rentED logo" width="640">
+  <img src="frontend/public/brand/logo.png" alt="rentED logo" width="680">
 </p>
 
 ![CI](https://github.com/edubertin/project_rentED/actions/workflows/ci.yml/badge.svg)
@@ -8,9 +8,9 @@
 ![License](https://img.shields.io/github/license/edubertin/project_rentED)
 ![Release](https://img.shields.io/github/v/release/edubertin/project_rentED)
 
-rentED is a property management platform with AI-assisted document ingestion, structured data extraction,
-and operational workflows for properties, owners, and work orders. It combines a FastAPI backend,
-Next.js dashboard, and a review-first pipeline for contract data before it is confirmed.
+rentED is a property management platform that combines a FastAPI backend and a Next.js dashboard
+with AI-assisted rental contract ingestion. It streamlines property onboarding, captures structured
+contract data, and keeps owners, documents, and activity logs organized for ongoing operations.
 
 ---
 
@@ -23,47 +23,36 @@ Next.js dashboard, and a review-first pipeline for contract data before it is co
 6. Environment Variables
 7. Database Migrations
 8. Seed Data
-9. API Usage (curl examples)
-10. Frontend Dashboard (Next.js)
-11. Document Extraction Pipeline (AI)
-12. Property Import (LLM)
-13. Sample Contracts for Testing
-14. Dashboard Docs and Swagger
-15. Testing
-16. Security Notes
-17. Troubleshooting
-18. Roadmap / Next Steps
-19. Contributing / Git Workflow
-20. License
+9. Key Workflows
+10. Sample Contracts for Testing
+11. Dashboard Docs and Swagger
+12. Testing
+13. Security Notes
+14. Roadmap / Next Steps
+15. Contributing
+16. License
 
 ---
 
 ## 1. Overview
-rentED API is a backend scaffold for property management operations. It includes:
-- Core data model with migrations
-- Session-based authentication (HTTP-only cookie)
-- CRUD endpoints for properties
-- Document upload and AI-backed extraction pipeline
-- Work orders endpoint
-- Custom documentation dashboard + Swagger
+rentED focuses on clean contracts, strict ownership rules, and fast onboarding:
+- Properties with photos (1 to 10)
+- Owner-aware access control (admin sees all, owners see only theirs)
+- Contract-driven prefill via LLM suggestions
+- Documents linked to properties with download access
+- Activity log per user (admin sees all)
 
 ---
 
 ## 2. Features
-- Healthcheck endpoint: `GET /health`
-- Session login (username/password)
-- CRUD for properties
-- Property photos upload (local storage)
-- Document upload (local storage) + list by status
-- AI extraction pipeline (worker + Redis queue) with confidence scoring
-- Review screen to confirm extracted JSON
-- Import property data from rental contract (LLM prefill)
-- Work orders creation + listing
-- Activity log entries for document processing/review
-- Admin-only user management endpoints (`/users`) + Users dashboard
-- Alembic migrations
-- Dashboard docs at `/docs`
-- Swagger UI at `/swagger`
+- Healthcheck: `GET /health`
+- Session-based authentication (HTTP-only cookie)
+- Admin-only user management
+- Property CRUD with photo uploads
+- Contract import suggestions (LLM) inside Create/Edit Property
+- Documents linked to properties with downloads
+- Activity log for core actions (login, create/update property)
+- Alembic migrations and Docker-first setup
 
 ---
 
@@ -72,12 +61,12 @@ rentED API is a backend scaffold for property management operations. It includes
 - SQLAlchemy
 - Alembic
 - PostgreSQL
-- Redis
-- RQ
+- Redis + RQ
 - LangChain (OpenAI)
 - pypdf + optional OCR
 - passlib (bcrypt)
 - Docker Compose
+- Next.js
 
 ---
 
@@ -105,7 +94,6 @@ backend/
 
 frontend/
   components/
-    TopNav.js
   pages/
   styles/
   lib/
@@ -115,7 +103,6 @@ frontend/
 docker-compose.yml
 .env.example
 README.md
-CONTRIBUTING.md
 CHANGELOG.md
 LICENSE
 ```
@@ -143,57 +130,43 @@ docker compose run --rm api alembic upgrade head
 docker compose up -d worker
 ```
 
-### 5.5 (Optional) Seed admin + 2 properties
+### 5.5 (Optional) Seed admin + sample data
 ```
 docker compose run --rm api python scripts/seed.py
 ```
 
-### 5.6 Open the dashboard docs
-- `http://localhost:8000/docs`
-
-### 5.7 Open Swagger UI
-- `http://localhost:8000/swagger`
+### 5.6 Open the dashboards
+- API Docs: `http://localhost:8000/docs`
+- Swagger: `http://localhost:8000/swagger`
+- Frontend: `http://localhost:3000`
 
 ---
 
 ## 6. Environment Variables
 Defined in `.env.example`:
-- `POSTGRES_USER`
-- `POSTGRES_PASSWORD`
-- `POSTGRES_DB`
-- `DATABASE_URL`
-- `REDIS_URL`
-- `OPENAI_API_KEY`
-- `OPENAI_MODEL`
-- `OPENAI_TEMPERATURE`
-- `OPENAI_MAX_TOKENS` (default 1024)
+- `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
+- `DATABASE_URL`, `REDIS_URL`
+- `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_TEMPERATURE`, `OPENAI_MAX_TOKENS`
 - `AI_MODE` (`live` or `mock`)
 - `AI_CONFIDENCE_THRESHOLD`
+- `AI_LLM_INPUT_MAX_CHARS`
 - `OCR_MODE` (`none` or `tesseract`)
-- `AI_LLM_INPUT_MAX_CHARS` (max characters sent to the LLM)
-- `SESSION_TTL_MINUTES`
-- `SESSION_COOKIE_NAME`
-- `COOKIE_SECURE`
-- `SEED_ADMIN_USERNAME`
-- `SEED_ADMIN_PASSWORD`
-- `SEED_ADMIN_NAME`
-- `SEED_ADMIN_CELL`
+- `SESSION_TTL_MINUTES`, `SESSION_COOKIE_NAME`, `COOKIE_SECURE`
+- `SEED_ADMIN_USERNAME`, `SEED_ADMIN_PASSWORD`, `SEED_ADMIN_NAME`, `SEED_ADMIN_CELL`,
+  `SEED_ADMIN_EMAIL`, `SEED_ADMIN_CPF`
 
 Optional:
 - `UPLOAD_DIR` (default: `/app/data/uploads`)
-- `NEXT_PUBLIC_API_BASE` (frontend, default: `http://localhost:8000`)
+- `NEXT_PUBLIC_API_BASE` (frontend)
 
 ---
 
 ## 7. Database Migrations
-Migrations are managed by Alembic and should be the source of truth for schema.
-
-Run migrations:
 ```
 docker compose run --rm api alembic upgrade head
 ```
 
-If you need a new migration after editing models:
+Create a new migration after model changes:
 ```
 docker compose run --rm api alembic revision --autogenerate -m "describe_change"
 ```
@@ -201,13 +174,10 @@ docker compose run --rm api alembic revision --autogenerate -m "describe_change"
 ---
 
 ## 8. Seed Data
-Seed script creates:
-- 1 admin user
-- 2 properties owned by admin
-
+Seed script creates one admin and sample properties.
 Defaults (override in `.env`):
-- Username: `SEED_ADMIN_USERNAME` (default `admin`)
-- Password: `SEED_ADMIN_PASSWORD` (default `Admin123!`)
+- Username: `admin`
+- Password: `Admin123!`
 
 Run:
 ```
@@ -216,236 +186,51 @@ docker compose run --rm api python scripts/seed.py
 
 ---
 
-## 9. API Usage (curl examples)
-### Health
-```
-curl http://localhost:8000/health
-```
+## 9. Key Workflows
+### 9.1 Authentication
+- `POST /auth/login`
+- `GET /auth/me`
+- `POST /auth/logout`
 
-### Login
-```
-curl -X POST http://localhost:8000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin123!"}'
-```
-Use cookies for authenticated calls:
-```
-curl -c cookies.txt -X POST http://localhost:8000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"Admin123!"}'
-curl -b cookies.txt http://localhost:8000/properties
-```
+### 9.2 Create Property (LLM suggestions)
+1. Fill the base property fields.
+2. Upload 1 to 10 photos.
+3. If rented, upload a contract and click **Suggest fields**.
+4. Select fields to apply and click **Apply fields**.
+5. Save the property.
 
-### Current User
-```
-curl http://localhost:8000/auth/me
-```
+The contract document is stored and linked to the property automatically.
 
-### Logout
-```
-curl -X POST http://localhost:8000/auth/logout
-```
+### 9.3 Documents
+- Upload: `POST /documents/upload?property_id=...`
+- List: `GET /documents?property_id=...`
+- Download: `GET /documents/{id}/download`
 
-### Create Property
-```
-curl -X POST http://localhost:8000/properties \
-  -H "Content-Type: application/json" \
-  -d '{"owner_user_id":1,"extras":{"label":"Main"}}'
-```
-
-### Import Property From Contract (LLM)
-```
-curl -X POST http://localhost:8000/properties/import \
-  -F "file=@./samples/contracts/rented_sample_rental_contract.pdf"
-```
-The extracted contract will be linked to the property when you create it in the UI.
-
-### Create User (admin-only)
-This endpoint is admin-only. Do not expose it in production without proper auth controls.
-```
-curl -X POST http://localhost:8000/users \
-  -H "Content-Type: application/json" \
-  -d '{"username":"owner1","password":"Owner123!","role":"property_owner","name":"Owner","cell_number":"(111) 11111 1111","extras":{}}'
-```
-
-Roles:
-- `admin`
-- `real_estate`
-- `finance`
-- `service_provider`
-- `property_owner`
-
-Username rules:
-- One word, letters and numbers only (3–80 chars).
-
-Name rules:
-- Letters and spaces only (2–120 chars).
-
-Password rules:
-- Min 8 chars, includes 1 uppercase, 1 number, 1 special.
-
-Cell number format:
-- `(xxx) xxxxx xxxx`
-
-### Update User (admin-only)
-```
-curl -X PUT http://localhost:8000/users/2 \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Owner Updated","cell_number":"(111) 11111 1111"}'
-```
-
-### Delete User (admin-only)
-```
-curl -X DELETE http://localhost:8000/users/2
-```
-Note: admin users are protected from deletion.
-
-### List Properties
-```
-curl http://localhost:8000/properties
-```
-
-### Update Property
-```
-curl -X PUT http://localhost:8000/properties/1 \
-  -H "Content-Type: application/json" \
-  -d '{"extras":{"label":"Updated"}}'
-```
-
-### Upload Property Photos (max 10)
-```
-curl -X POST http://localhost:8000/properties/1/photos \
-  -F "files=@./path/to/photo1.jpg" \
-  -F "files=@./path/to/photo2.jpg"
-```
-
-### Delete Property
-```
-curl -X DELETE http://localhost:8000/properties/1
-```
-
-### Upload Document
-```
-curl -X POST "http://localhost:8000/documents/upload?property_id=1" \
-  -F "file=@./path/to/file.pdf"
-```
-
-### Download an Uploaded File
-```
-curl -O http://localhost:8000/uploads/<filename>
-```
-
-### List Documents by Status
-```
-curl "http://localhost:8000/documents?status=uploaded"
-```
-
-### Process Document (enqueue)
-```
-curl -X POST http://localhost:8000/documents/1/process
-```
-
-### Get Document Extraction
-```
-curl http://localhost:8000/documents/1/extraction
-```
-
-### Confirm Document Review
-```
-curl -X PUT http://localhost:8000/documents/1/review \
-  -H "Content-Type: application/json" \
-  -d '{"extraction":{"doc_type":"contract","fields":{},"summary":"ok","alerts":[],"confidence":0.9}}'
-```
-
-### Create Work Order
-```
-curl -X POST http://localhost:8000/work-orders \
-  -H "Content-Type: application/json" \
-  -d '{"property_id":1,"extras":{"title":"Fix leak"}}'
-```
-
-### List Work Orders
-```
-curl http://localhost:8000/work-orders
-```
+### 9.4 Activity Log
+- `GET /activity-log`
+- Admin sees all entries, other users see only their own.
 
 ---
 
-## 10. Frontend Dashboard (Next.js)
-The frontend is a minimal Next.js dashboard with login + screens:
-- Login (index)
-- Properties list + create + import
-- Property detail (documents + work orders)
-- Work orders list + create
-- Users (admin-only)
-
-Run it:
-```
-cd frontend
-npm install
-npm run dev
-```
-
-Then open:
-- `http://localhost:3000` (login)
-
-If the API is on a different host/port:
-```
-set NEXT_PUBLIC_API_BASE=http://localhost:8000
-```
-
----
-
-## 11. Document Extraction Pipeline (AI)
-### Flow
-1. Upload document -> stored locally.
-2. Worker extracts text (PDF/text files; OCR optional for images).
-3. AI extracts `doc_type`, fields, summary, alerts, and confidence.
-4. Document status moves to `needs_review`.
-5. Review endpoint confirms and sets status to `confirmed`.
-
-### Notes
-- AI results are stored in `document_extractions.extras`.
-- Extracted text is always preserved in the extraction payload.
-- Low-confidence results add an alert and still require review.
-- Set `AI_MODE=mock` in dev/tests to disable API calls.
-- OCR for images uses Tesseract. In Docker it is installed via the API image. Set `OCR_MODE=tesseract` to enable it.
-- LLM input is capped by `AI_LLM_INPUT_MAX_CHARS` to avoid oversized responses.
-
----
-
-## 12. Property Import (LLM)
-You can upload a rental contract and prefill the Property form:
-- UI: Properties → Import Property
-- API: `POST /properties/import` (returns extracted fields and summary)
-
-This uses the same extraction pipeline and respects:
-- `AI_MODE` (`live` or `mock`)
-- `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_MAX_TOKENS`
-
-The uploaded contract is attached to the Property as a document once the Property is created.
-
----
-
-## 13. Sample Contracts for Testing
+## 10. Sample Contracts for Testing
 Sample contract PDF for local testing:
-- `samples/contracts/rented_sample_rental_contract.pdf`
+- `samples/contracts/ms_imoveis_avalyst_contract_sample.pdf`
 
 Suggested flow:
-1. Use **Import Property** and upload the sample contract.
-2. Review the prefilled fields.
-3. Add required photos and create the property.
+1. Create Property -> enable **Rented**.
+2. Upload the sample contract and review suggested fields.
+3. Apply fields, add required photos, then save.
 
 ---
 
-## 14. Dashboard Docs and Swagger
-- `/docs` provides an interactive dashboard with inline test widgets.
-- `/swagger` provides full OpenAPI request/response schemas.
+## 11. Dashboard Docs and Swagger
+- `/docs` provides a custom interactive dashboard.
+- `/swagger` provides full OpenAPI schemas.
 - `/openapi.json` returns raw OpenAPI JSON.
 
 ---
 
-## 15. Testing
+## 12. Testing
 Run tests inside the container:
 ```
 docker compose run --rm api pytest
@@ -453,52 +238,27 @@ docker compose run --rm api pytest
 
 ---
 
-## 16. Security Notes
-- All CRUD endpoints require an authenticated session cookie.
-- Non-admin users can only create and manage their own properties.
-- Default Postgres credentials are for local use only.
-- Uploads are stored locally in `./data/uploads` (bind-mounted into the container).
-- Exposed ports (Postgres/Redis) are open to the host. Restrict or remove in production.
-- Store `OPENAI_API_KEY` securely and never commit it.
-- Known advisory: Next.js has a high-severity advisory affecting Image Optimizer and Server Components. We keep Next 14.2.35 during development to avoid breaking changes and plan to upgrade to Next 16 before production.
-- Session cookies are httpOnly; set `COOKIE_SECURE=true` when using HTTPS.
+## 13. Security Notes
+- All CRUD endpoints require a session cookie.
 - Admin accounts cannot be deleted via the API.
+- Uploads are stored locally in `./data/uploads` (bind-mounted).
+- Do not commit `.env` or API keys.
+- Exposed ports are for local dev only; lock them down in production.
 
 ---
 
-## 17. Troubleshooting
-### Migration errors (missing revision)
-If you see:
-`Can't locate revision identified by '0001_create_items'`
-
-Rebuild the API image to ensure latest migrations are inside:
-```
-docker compose build api
-```
-
-### Upload directory issues
-If uploads fail, verify the container can write to `/app/data/uploads`.
-Ensure `./data/uploads` exists on the host when using the bind mount.
-
-### Redis warnings
-If Redis logs warning about POST/Host commands, it is likely due to port exposure.
-For local-only use, bind to 127.0.0.1 or remove the port mapping.
+## 14. Roadmap / Next Steps
+- Work orders workflow (UI + API)
+- More activity log coverage
+- Contract templates and multi-model support
+- Storage backend abstraction (S3/MinIO)
 
 ---
 
-## 18. Roadmap / Next Steps
-- Define real user fields (email, name, password hash)
-- Add email and password reset flows
-- Expand document metadata beyond `extras`
-- Extend activity log coverage to more write operations
-- Add test coverage for error cases and auth
+## 15. Contributing
+See `CONTRIBUTING.md` for the workflow and standards.
 
 ---
 
-## 19. Contributing / Git Workflow
-See `CONTRIBUTING.md` for the full workflow and expectations.
-
----
-
-## 20. License
+## 16. License
 MIT. See `LICENSE` for details.

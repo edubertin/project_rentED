@@ -4,11 +4,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import re
+
 from pydantic import BaseModel, Field
 
 
 CONTRACT_FIELDS = [
     # Canonical rental contract fields (English).
+    "real_estate_name",
+    "landlord_address",
     "landlord_name",
     "tenant_name",
     "landlord_cpf",
@@ -40,6 +44,39 @@ CONTRACT_FIELDS = [
     "notes",
     "sensitive_topics",  # list of sensitive flags for audit/logs
 ]
+
+MS_IMOVEIS_FIELDS = [
+    "contract_title",
+    "document_platform",
+    "document_code",
+    "administrator_name",
+    "administrator_creci",
+    "administrator_address",
+    "admin_fee_percent",
+    "guarantee_provider_name",
+    "guarantee_provider_cnpj",
+    "guarantee_provider_address",
+    "guarantee_annex_reference",
+    "payment_method",
+    "includes_condominium",
+    "includes_iptu",
+    "late_fee_percent",
+    "interest_percent_month",
+    "tolerance_rule",
+    "breach_penalty_months",
+    "forum_city",
+    "forum_state",
+    "signed_city",
+    "signed_state",
+]
+
+
+def _suggested_fields_catalog() -> list[str]:
+    catalog: list[str] = []
+    for item in CONTRACT_FIELDS + MS_IMOVEIS_FIELDS:
+        if item not in catalog:
+            catalog.append(item)
+    return catalog
 
 
 class ExtractionResult(BaseModel):
@@ -168,7 +205,20 @@ def _default_mock_result(text: str, filename: str) -> ExtractionResult:
     )
 
 
-def run_llm_extraction(text: str, filename: str) -> ExtractionResult:
+def _model_prompt_context(real_estate_name: str | None) -> tuple[str, list[str]]:
+    hint = ""
+    if real_estate_name:
+        hint = f"The real estate company is '{real_estate_name}'."
+    return hint, _suggested_fields_catalog()
+
+
+def run_llm_extraction(
+    text: str,
+    filename: str,
+    real_estate_name: str | None = None,
+    model_fields: list[str] | None = None,
+    model_prompt: str | None = None,
+) -> ExtractionResult:
     ai_mode = os.getenv("AI_MODE", "live").lower()
     if ai_mode == "mock":
         return _default_mock_result(text, filename)
@@ -184,17 +234,27 @@ def run_llm_extraction(text: str, filename: str) -> ExtractionResult:
     temperature = float(os.getenv("OPENAI_TEMPERATURE", "0"))
     max_tokens = int(os.getenv("OPENAI_MAX_TOKENS", "512"))
 
+    model_hint, default_fields = _model_prompt_context(real_estate_name)
+    effective_fields = model_fields or default_fields
+    if model_prompt:
+        model_hint = f"{model_prompt} {model_hint}".strip()
     system_prompt = (
         "You are an extraction engine for property management documents. "
         "Return JSON with keys: doc_type, fields, summary, alerts, confidence. "
         "doc_type must be one of: contract, invoice, receipt, work_order, other. "
-        "If the document is a contract, extract common fields using these keys: "
-        + ", ".join(CONTRACT_FIELDS)
-        + ". Use null for unknown fields. "
+        "Extract common fields using these keys when available: "
+        + ", ".join(effective_fields)
+        + ". You may add additional snake_case field keys that appear in the document. "
+        "Use null for unknown fields. "
+        "Always try to extract rent_amount and admin_fee_percent if present. "
+        "If the rent value appears in words (por extenso), convert it to a numeric BRL amount "
+        "and still return a normalized currency string like 'R$ 3.100,00'. "
+        "Contracts are in pt-BR, so assume BRL unless the document explicitly uses another currency. "
         "Use fields.sensitive_topics as a list of sensitive flags if found (e.g., "
         "ID numbers, bank details, payment methods, guarantor info). "
         "Keep summary <= 50 words and alerts <= 5 short strings. "
-        "Always include a confidence score between 0 and 1."
+        "Always include a confidence score between 0 and 1. "
+        + model_hint
     )
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -230,3 +290,73 @@ def run_llm_extraction(text: str, filename: str) -> ExtractionResult:
         )
         payload = json.loads(raw.content)
         return ExtractionResult.model_validate(payload)
+
+
+def quick_extract_contract_fields(text: str) -> dict[str, Any]:
+    if not text:
+        return {}
+    fields: dict[str, Any] = {}
+    rent_match = re.search(
+        r"aluguel[^\\n\\r]{0,80}(R\\$\\s*[\\d\\.]+,\\d{2})",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not rent_match:
+        rent_match = re.search(r"(R\\$\\s*[\\d\\.]+,\\d{2})", text)
+    if rent_match:
+        fields["rent_amount"] = rent_match.group(1).strip()
+
+    admin_match = re.search(
+        r"admin[^\\n\\r]{0,80}(\\d{1,2}(?:[\\.,]\\d{1,2})?)\\s*%",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if admin_match:
+        fields["admin_fee_percent"] = admin_match.group(1).replace(",", ".").strip()
+    return fields
+
+
+def summarize_property(payload: dict[str, Any]) -> str:
+    ai_mode = os.getenv("AI_MODE", "live").lower()
+    if ai_mode == "mock":
+        tag = payload.get("tag") or payload.get("label") or "Property"
+        address = payload.get("property_address") or "address not provided"
+        return f"{tag} located at {address}."
+
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_openai import ChatOpenAI
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return ""
+
+    model_name = os.getenv("OPENAI_MODEL", "gpt-4o")
+    temperature = float(os.getenv("OPENAI_TEMPERATURE", "0"))
+    max_tokens = int(os.getenv("OPENAI_MAX_TOKENS", "256"))
+
+    system_prompt = (
+        "You are summarizing a rental property record for an internal dashboard. "
+        "Use only the provided data. Be concise (2-4 sentences). "
+        "Mention tag/name, address, status (rented or not), "
+        "rent values, bedrooms/bathrooms/parking if available, "
+        "and any contract highlights (tenant/real estate) if present. "
+        "Do not invent data."
+    )
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system_prompt),
+            ("human", "Property data (JSON):\n{payload}"),
+        ]
+    )
+    llm = ChatOpenAI(
+        model=model_name,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        timeout=30,
+        max_retries=2,
+    )
+    try:
+        result = llm.invoke(prompt.format(payload=json.dumps(payload, ensure_ascii=False)))
+        return (result.content or "").strip()
+    except Exception:
+        return ""

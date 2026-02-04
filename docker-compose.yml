@@ -34,7 +34,7 @@ services:
       SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-Admin123!}
       SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-Admin User}
-      SEED_ADMIN_CELL: ${SEED_ADMIN_CELL}
+      SEED_ADMIN_CELL: ${SEED_ADMIN_CELL:-}
     ports:
       - "8000:8000"
     volumes:
@@ -62,7 +62,7 @@ services:
       SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-Admin123!}
       SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-Admin User}
-      SEED_ADMIN_CELL: ${SEED_ADMIN_CELL}
+      SEED_ADMIN_CELL: ${SEED_ADMIN_CELL:-}
     volumes:
       - ./data/uploads:/app/data/uploads
     depends_on:

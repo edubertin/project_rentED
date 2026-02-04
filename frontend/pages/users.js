@@ -18,6 +18,8 @@ const emptyForm = {
   role: "real_estate",
   name: "",
   cell_number: "",
+  email: "",
+  cpf: "",
 };
 
 function formatCellNumber(value) {
@@ -81,6 +83,8 @@ export default function UsersPage() {
       role: user.role,
       name: user.name,
       cell_number: user.cell_number,
+      email: user.email || "",
+      cpf: user.cpf || "",
     });
     setError("");
     setModalOpen(true);
@@ -90,7 +94,7 @@ export default function UsersPage() {
     event.preventDefault();
     setError("");
     if (modalMode === "create") {
-      if (!form.username || !form.password || !form.name || !form.cell_number) {
+      if (!form.username || !form.password || !form.name || !form.cell_number || !form.email || !form.cpf) {
         setError("Fill in all required fields.");
         return;
       }
@@ -110,6 +114,14 @@ export default function UsersPage() {
         setError("Cell number must match (000) 00000 0000.");
         return;
       }
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email)) {
+        setError("Provide a valid email.");
+        return;
+      }
+      if (form.cpf.replace(/\D/g, "").length !== 11) {
+        setError("CPF must have 11 digits.");
+        return;
+      }
       try {
         const created = await apiPost("/users", form);
         setUsers((prev) => [...prev, created]);
@@ -125,6 +137,8 @@ export default function UsersPage() {
       role: form.role,
       name: form.name,
       cell_number: form.cell_number,
+      email: form.email,
+      cpf: form.cpf,
     };
     if (form.password) payload.password = form.password;
     if (!/^[A-Za-z0-9]{3,80}$/.test(form.username)) {
@@ -141,6 +155,14 @@ export default function UsersPage() {
     }
     if (!isCellNumberValid(form.cell_number)) {
       setError("Cell number must match (000) 00000 0000.");
+      return;
+    }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email)) {
+      setError("Provide a valid email.");
+      return;
+    }
+    if (form.cpf.replace(/\D/g, "").length !== 11) {
+      setError("CPF must have 11 digits.");
       return;
     }
     try {
@@ -170,7 +192,7 @@ export default function UsersPage() {
           <div>
             <h2>Users</h2>
             <p className="muted">
-              Manage access roles. Required fields: username, password, role, name, cell number.
+              Manage access roles. Required fields: username, password, role, name, email, CPF, cell number.
             </p>
           </div>
           {currentUser?.role === "admin" && (
@@ -192,6 +214,8 @@ export default function UsersPage() {
                   <th>Username</th>
                   <th>Name</th>
                   <th>Role</th>
+                  <th>Email</th>
+                  <th>CPF</th>
                   <th>Cell</th>
                   <th>Actions</th>
                 </tr>
@@ -205,6 +229,8 @@ export default function UsersPage() {
                     <td>
                       <span className="pill">{user.role}</span>
                     </td>
+                    <td>{user.email || "-"}</td>
+                    <td>{user.cpf || "-"}</td>
                     <td>{user.cell_number}</td>
                     <td>
                       {user.role === "admin" ? (
@@ -224,7 +250,7 @@ export default function UsersPage() {
                 ))}
                 {users.length === 0 && (
                   <tr>
-                    <td colSpan="6" className="muted">
+                    <td colSpan="8" className="muted">
                       No users found.
                     </td>
                   </tr>
@@ -280,6 +306,21 @@ export default function UsersPage() {
                 onChange={(event) => setForm({ ...form, name: event.target.value })}
                 autoComplete="name"
                 placeholder="ex: Maria Silva"
+                required
+              />
+              <label>Email</label>
+              <input
+                value={form.email}
+                onChange={(event) => setForm({ ...form, email: event.target.value })}
+                autoComplete="email"
+                placeholder="ex: maria@imoveis.com"
+                required
+              />
+              <label>CPF</label>
+              <input
+                value={form.cpf}
+                onChange={(event) => setForm({ ...form, cpf: event.target.value })}
+                placeholder="000.000.000-00"
                 required
               />
               <label>Cell Number</label>

@@ -21,6 +21,8 @@ class UserCreate(BaseModel):
     role: str = Field(min_length=1)
     name: str = Field(min_length=2, max_length=120)
     cell_number: str = Field(min_length=8, max_length=20)
+    email: str = Field(min_length=3, max_length=160)
+    cpf: str = Field(min_length=8, max_length=20)
     extras: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -30,6 +32,8 @@ class UserOut(BaseModel):
     role: str
     name: str
     cell_number: str
+    email: str | None = None
+    cpf: str | None = None
     extras: Dict[str, Any]
     model_config = ConfigDict(from_attributes=True)
 
@@ -44,6 +48,8 @@ class UserUpdate(BaseModel):
     role: Optional[str] = Field(default=None, min_length=1)
     name: Optional[str] = Field(default=None, min_length=2, max_length=120)
     cell_number: Optional[str] = Field(default=None, min_length=8, max_length=20)
+    email: Optional[str] = Field(default=None, min_length=3, max_length=160)
+    cpf: Optional[str] = Field(default=None, min_length=8, max_length=20)
     extras: Optional[Dict[str, Any]] = None
 
 
@@ -53,6 +59,45 @@ class PropertyImportResponse(BaseModel):
     summary: str
     alerts: list[str]
     confidence: float
+
+
+class ContractModelOut(BaseModel):
+    id: int
+    key: str
+    display_name: str
+    model_type: str
+    version: int
+    is_active: bool
+    real_estate_user_id: int | None = None
+    base_fields: list[str]
+    custom_fields: list[dict]
+    detection_keywords: list[str]
+    model_prompt: str | None = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ContractModelCreate(BaseModel):
+    key: str = Field(min_length=3, max_length=120)
+    display_name: str = Field(min_length=3, max_length=180)
+    model_type: str = Field(min_length=3, max_length=40)
+    version: int | None = None
+    is_active: bool = True
+    real_estate_user_id: int | None = None
+    base_fields: list[str] = Field(default_factory=list)
+    custom_fields: list[dict] = Field(default_factory=list)
+    detection_keywords: list[str] = Field(default_factory=list)
+    model_prompt: str | None = None
+
+
+class ContractModelUpdate(BaseModel):
+    display_name: str | None = Field(default=None, min_length=3, max_length=180)
+    model_type: str | None = Field(default=None, min_length=3, max_length=40)
+    is_active: bool | None = None
+    real_estate_user_id: int | None = None
+    base_fields: list[str] | None = None
+    custom_fields: list[dict] | None = None
+    detection_keywords: list[str] | None = None
+    model_prompt: str | None = None
 
 
 class PropertyCreate(BaseModel):
@@ -95,6 +140,12 @@ class WorkOrderCreate(BaseModel):
 class WorkOrderOut(BaseModel):
     id: int
     property_id: int
+    extras: Dict[str, Any]
+
+
+class ActivityLogOut(BaseModel):
+    id: int
+    user_id: int | None
     extras: Dict[str, Any]
 
 

@@ -12,6 +12,8 @@ ADMIN_USERNAME = os.getenv("SEED_ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("SEED_ADMIN_PASSWORD", "Admin123!")
 ADMIN_NAME = os.getenv("SEED_ADMIN_NAME", "Admin User")
 ADMIN_CELL = os.getenv("SEED_ADMIN_CELL", "(000) 00000 0000")
+ADMIN_EMAIL = os.getenv("SEED_ADMIN_EMAIL", "admin@rented.local")
+ADMIN_CPF = os.getenv("SEED_ADMIN_CPF", "000.000.000-00")
 
 
 def seed() -> None:
@@ -27,6 +29,8 @@ def seed() -> None:
                 role=ADMIN_ROLE,
                 name=ADMIN_NAME,
                 cell_number=ADMIN_CELL,
+                email=ADMIN_EMAIL,
+                cpf=ADMIN_CPF,
                 extras={"name": ADMIN_NAME},
             )
             session.add(admin)

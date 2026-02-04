@@ -11,15 +11,12 @@ export default function PropertyDetail() {
   const [documents, setDocuments] = useState([]);
   const [workOrders, setWorkOrders] = useState([]);
   const [workTitle, setWorkTitle] = useState("");
+  const [activePhoto, setActivePhoto] = useState(0);
   const [error, setError] = useState("");
 
   function buildDocumentUrl(doc) {
-    const url = doc.extras?.url;
-    if (url) return `${API_BASE}${url}`;
-    const path = doc.extras?.path || "";
-    const filename = path.split("/").pop();
-    if (!filename) return "";
-    return `${API_BASE}/uploads/${filename}`;
+    if (!doc?.id) return "";
+    return `${API_BASE}/documents/${doc.id}/download`;
   }
 
   useEffect(() => {
@@ -38,11 +35,11 @@ export default function PropertyDetail() {
     try {
       const [props, docs, wos] = await Promise.all([
         apiGet("/properties"),
-        apiGet("/documents"),
+        apiGet(`/documents?property_id=${id}`),
         apiGet("/work-orders"),
       ]);
       setProperty(props.find((p) => String(p.id) === String(id)) || null);
-      setDocuments(docs.filter((d) => String(d.property_id) === String(id)));
+      setDocuments(docs);
       setWorkOrders(wos.filter((w) => String(w.property_id) === String(id)));
     } catch (err) {
       setError("Failed to load data");
@@ -68,16 +65,135 @@ export default function PropertyDetail() {
     }
   }
 
+  const photos = property?.extras?.photos || [];
+  const activePhotoItem = photos[activePhoto] || null;
+  const extras = property?.extras || {};
+  const beds = extras.bedrooms ?? "";
+  const baths = extras.bathrooms ?? "";
+  const parking = extras.parking_spaces ?? "";
+  function formatRent(cents, currency) {
+    if (!cents) return "";
+    const amount = Number(cents) / 100;
+    const locale = currency === "USD" ? "en-US" : "pt-BR";
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency: currency || "BRL",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  }
+
+  const rentCurrency = extras.rent_currency || "BRL";
+  const rentAmount = extras.is_rented
+    ? extras.current_rent_display
+        || extras.rent_amount_display
+        || formatRent(extras.current_rent_value || extras.rent_amount_value, rentCurrency)
+    : extras.desired_rent_display
+        || formatRent(extras.desired_rent_value, rentCurrency);
+  const adminFeePercent = Number(String(extras.admin_fee_percent || "").replace("%", ""));
+  const rentCents = extras.current_rent_value || extras.rent_amount_value || extras.desired_rent_value;
+  const netAmount = extras.is_rented && rentCents && adminFeePercent
+    ? formatRent(Math.max(rentCents - Math.round(rentCents * adminFeePercent / 100), 0), rentCurrency)
+    : "";
+
   return (
     <div className="container">
       <TopNav />
 
       <h1>Property Detail</h1>
       {property ? (
-        <div className="card">
-          <div>ID: {property.id}</div>
-          <div>Tag: {property.extras?.tag || property.extras?.label || "Property"}</div>
-          <div>Owner: {property.owner_user_id}</div>
+        <div className="card property-detail">
+          <div className="property-hero">
+            <div className="property-gallery">
+              {activePhotoItem ? (
+                <img
+                  className="property-hero-image"
+                  src={`${API_BASE}${activePhotoItem.url}`}
+                  alt={property.extras?.tag || "Property"}
+                />
+              ) : (
+                <div className="property-hero-empty">No photos yet</div>
+              )}
+              {photos.length > 1 && (
+                <div className="gallery-controls">
+                  <button
+                    type="button"
+                    className="btn-muted"
+                    onClick={() => setActivePhoto((prev) => (prev - 1 + photos.length) % photos.length)}
+                  >
+                    Prev
+                  </button>
+                  <span className="muted">
+                    {activePhoto + 1} / {photos.length}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-muted"
+                    onClick={() => setActivePhoto((prev) => (prev + 1) % photos.length)}
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+              {photos.length > 1 && (
+                <div className="gallery-thumbs">
+                  {photos.map((photo, idx) => (
+                    <button
+                      type="button"
+                      key={photo.url || idx}
+                      className={`thumb-button ${idx === activePhoto ? "thumb-active" : ""}`}
+                      onClick={() => setActivePhoto(idx)}
+                    >
+                      <img src={`${API_BASE}${photo.url}`} alt="thumb" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="property-summary">
+              <h2>{property.extras?.tag || property.extras?.label || "Property"}</h2>
+              <p className="muted">{property.extras?.property_address || "Address not provided."}</p>
+              <div className="property-stats">
+                <div className="stat">
+                  <span className="stat-icon" aria-hidden="true">B</span>
+                  <span>{beds || "-"}</span>
+                  <small className="muted">Bedrooms</small>
+                </div>
+                <div className="stat">
+                  <span className="stat-icon" aria-hidden="true">W</span>
+                  <span>{baths || "-"}</span>
+                  <small className="muted">Bathrooms</small>
+                </div>
+                <div className="stat">
+                  <span className="stat-icon" aria-hidden="true">P</span>
+                  <span>{parking || "-"}</span>
+                  <small className="muted">Parking</small>
+                </div>
+              </div>
+              <div className="property-footer">
+                {rentAmount ? (
+                  <div className="rent-amount">
+                    <span className="rent-label">
+                      {property.extras?.is_rented ? "Current Rent" : "Desired Rent"}
+                    </span>
+                    <span className="rent-value">{rentAmount}</span>
+                    {property.extras?.is_rented && adminFeePercent ? (
+                      <small className="muted">
+                        Admin fee {adminFeePercent}% • Net {netAmount || "-"}
+                      </small>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="pill">
+                    {property.extras?.is_rented ? "Rented" : "Available"}
+                  </div>
+                )}
+              </div>
+              {property.extras?.is_rented && (
+                <div className="rented-badge">_rented</div>
+              )}
+            </div>
+          </div>
         </div>
       ) : (
         <div className="card">Property not found.</div>
@@ -86,34 +202,21 @@ export default function PropertyDetail() {
       <div className="grid">
         <div className="card">
           <h3>Documents</h3>
+          {documents.length === 0 && <p className="muted">No documents yet.</p>}
           {documents.map((d) => (
-            <div key={d.id}>
-              #{d.id} -{" "}
-              {buildDocumentUrl(d) ? (
+            <div key={d.id} className="doc-row">
+              <span>{d.extras?.name || `document-${d.id}`}</span>
+              {buildDocumentUrl(d) && (
                 <a href={buildDocumentUrl(d)} target="_blank" rel="noreferrer">
-                  {d.extras?.name || "document"}
+                  Open
                 </a>
-              ) : (
-                d.extras?.name || "document"
-              )}{" "}
-              ({d.extras?.status})
+              )}
             </div>
           ))}
         </div>
         <div className="card">
           <h3>Work Orders</h3>
-          {workOrders.map((w) => (
-            <div key={w.id}>
-              #{w.id} - {w.extras?.title || "work"}
-            </div>
-          ))}
-          <form onSubmit={createWorkOrder} style={{ marginTop: 12 }}>
-            <label>Title</label>
-            <input value={workTitle} onChange={(e) => setWorkTitle(e.target.value)} />
-            <div style={{ marginTop: 8 }}>
-              <button type="submit">Create OS</button>
-            </div>
-          </form>
+          <p className="muted">We will implement work orders soon.</p>
         </div>
       </div>
       {error && <p style={{ color: "salmon" }}>{error}</p>}

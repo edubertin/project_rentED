@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 ## [Unreleased]
 - TBD.
 
+## [0.2.0] - 2026-02-04
+- Consolidate rental contract import into Create/Edit Property with LLM suggest/apply flow.
+- Add contract field overwrite confirmation and persist contract fields per property.
+- Improve property detail layout with carousel, rent/net display, and rented badge.
+- Add activity log page with user-scoped visibility and linked files list.
+- Add document download endpoint and property contract linkage.
+- Polish UI alignment, dark scrollbars, and photo preview behavior.
+
 ## [0.1.5] - 2026-02-03
 - Add property import flow using LLM to prefill the create form.
 - Add property photo uploads (up to 10) with thumbnail preview.

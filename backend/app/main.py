@@ -22,7 +22,16 @@ from app.auth import (
     verify_password,
 )
 from app.deps import get_current_user, get_db, get_optional_user, require_admin
-from app.models import ActivityLog, Document, DocumentExtraction, Property, Session as UserSession, User, WorkOrder
+from app.models import (
+    ActivityLog,
+    Document,
+    DocumentExtraction,
+    Property,
+    PropertyContract,
+    Session as UserSession,
+    User,
+    WorkOrder,
+)
 from app.queue import is_inline_mode, try_enqueue
 from app.schemas import (
     DocumentOut,
@@ -41,10 +50,17 @@ from app.schemas import (
     PropertyImportResponse,
     WorkOrderCreate,
     WorkOrderOut,
+    ActivityLogOut,
 )
 from app.storage import get_upload_dir
 from app.worker import process_document_job
-from app.ai import extract_text, prepare_llm_input, run_llm_extraction
+from app.ai import (
+    extract_text,
+    prepare_llm_input,
+    run_llm_extraction,
+    summarize_property,
+    quick_extract_contract_fields,
+)
 
 app = FastAPI(
     title="rentED API",
@@ -100,6 +116,15 @@ def _valid_name(value: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z ]{2,120}", value))
 
 
+def _valid_email(value: str) -> bool:
+    return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value))
+
+
+def _valid_cpf(value: str) -> bool:
+    digits = re.sub(r"\D", "", value or "")
+    return len(digits) == 11
+
+
 def _sanitize_filename(filename: str) -> str:
     return Path(filename).name
 
@@ -119,6 +144,131 @@ def _upload_photo(file: UploadFile) -> dict:
         "url": f"/uploads/{file_id}",
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def _should_store_contract(extras: dict) -> bool:
+    if extras.get("contract_fields"):
+        return True
+    keys = [
+        "contract_model_key",
+        "contract_number",
+        "document_code",
+        "tenant_name",
+        "landlord_name",
+        "guarantor_name",
+        "administrator_name",
+        "guarantee_provider_name",
+        "property_address",
+    ]
+    return any(extras.get(key) for key in keys)
+
+
+def _to_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    try:
+        return int(str(value))
+    except (ValueError, TypeError):
+        return None
+
+
+def _validate_property_extras(extras: dict) -> None:
+    tag = (extras.get("tag") or "").strip()
+    if not tag:
+        raise HTTPException(status_code=422, detail="missing_tag")
+    address = (extras.get("property_address") or "").strip()
+    if not address:
+        raise HTTPException(status_code=422, detail="missing_property_address")
+    bedrooms = _to_int(extras.get("bedrooms"))
+    bathrooms = _to_int(extras.get("bathrooms"))
+    parking_spaces = _to_int(extras.get("parking_spaces"))
+    if bedrooms is None or bedrooms < 0:
+        raise HTTPException(status_code=422, detail="invalid_bedrooms")
+    if bathrooms is None or bathrooms < 0:
+        raise HTTPException(status_code=422, detail="invalid_bathrooms")
+    if parking_spaces is None or parking_spaces < 0:
+        raise HTTPException(status_code=422, detail="invalid_parking_spaces")
+    is_rented = bool(extras.get("is_rented"))
+    desired_rent = _to_int(extras.get("desired_rent_value"))
+    current_rent = _to_int(extras.get("current_rent_value"))
+    legacy_rent = _to_int(extras.get("rent_amount_value"))
+    if is_rented:
+        if not (current_rent and current_rent > 0) and not (legacy_rent and legacy_rent > 0):
+            raise HTTPException(status_code=422, detail="missing_current_rent")
+    else:
+        if not (desired_rent and desired_rent > 0):
+            raise HTTPException(status_code=422, detail="missing_desired_rent")
+
+
+def _sync_property_contract(db: Session, prop: Property, extras: dict) -> None:
+    if not extras or not _should_store_contract(extras):
+        return
+    contract = db.execute(
+        select(PropertyContract).where(PropertyContract.property_id == prop.id)
+    ).scalar_one_or_none()
+    if contract is None:
+        contract = PropertyContract(property_id=prop.id)
+        db.add(contract)
+    contract.model_key = extras.get("contract_model_key")
+    contract.model_label = extras.get("contract_model_label")
+    contract.real_estate_user_id = _to_int(extras.get("contract_real_estate_id"))
+    contract.contract_model_id = _to_int(extras.get("contract_model_id"))
+    contract.document_id = _to_int(extras.get("contract_document_id"))
+    contract.real_estate_name = extras.get("real_estate_name")
+    contract.contract_title = extras.get("contract_title")
+    contract.document_platform = extras.get("document_platform")
+    contract.document_code = extras.get("document_code")
+    contract.contract_number = extras.get("contract_number")
+    contract.landlord_name = extras.get("landlord_name")
+    contract.landlord_cpf = extras.get("landlord_cpf")
+    contract.landlord_rg = extras.get("landlord_rg")
+    contract.landlord_address = extras.get("landlord_address")
+    contract.tenant_name = extras.get("tenant_name")
+    contract.tenant_cpf = extras.get("tenant_cpf")
+    contract.tenant_rg = extras.get("tenant_rg")
+    contract.tenant_address = extras.get("tenant_address")
+    contract.guarantor_name = extras.get("guarantor_name")
+    contract.guarantor_cpf = extras.get("guarantor_cpf")
+    contract.guarantor_rg = extras.get("guarantor_rg")
+    contract.administrator_name = extras.get("administrator_name")
+    contract.administrator_creci = extras.get("administrator_creci")
+    contract.administrator_address = extras.get("administrator_address")
+    contract.admin_fee_percent = extras.get("admin_fee_percent")
+    contract.guarantee_provider_name = extras.get("guarantee_provider_name")
+    contract.guarantee_provider_cnpj = extras.get("guarantee_provider_cnpj")
+    contract.guarantee_provider_address = extras.get("guarantee_provider_address")
+    contract.guarantee_annex_reference = extras.get("guarantee_annex_reference")
+    contract.payment_method = extras.get("payment_method")
+    contract.includes_condominium = bool(extras.get("includes_condominium"))
+    contract.includes_iptu = bool(extras.get("includes_iptu"))
+    contract.late_fee_percent = extras.get("late_fee_percent")
+    contract.interest_percent_month = extras.get("interest_percent_month")
+    contract.tolerance_rule = extras.get("tolerance_rule")
+    contract.breach_penalty_months = extras.get("breach_penalty_months")
+    rent_cents = _to_int(extras.get("current_rent_value"))
+    if rent_cents is None:
+        rent_cents = _to_int(extras.get("rent_amount_value"))
+    contract.rent_amount_cents = rent_cents
+    contract.rent_currency = extras.get("rent_currency")
+    contract.payment_day = _to_int(extras.get("payment_day"))
+    contract.indexation_type = extras.get("indexation_type")
+    contract.indexation_rate = extras.get("indexation_rate")
+    contract.start_date = extras.get("start_date")
+    contract.end_date = extras.get("end_date")
+    contract.term_months = _to_int(extras.get("term_months"))
+    contract.sign_date = extras.get("sign_date")
+    contract.forum_city = extras.get("forum_city")
+    contract.forum_state = extras.get("forum_state")
+    contract.signed_city = extras.get("signed_city")
+    contract.signed_state = extras.get("signed_state")
+    contract.document_numbers = extras.get("document_numbers")
+    contract.witnesses = extras.get("witnesses")
+    contract.notes = extras.get("notes")
+    contract.sensitive_topics = extras.get("sensitive_topics")
+    contract.contract_fields = extras.get("contract_fields") or extras
+
 
 def _log_activity(db: Session, event: str, extras: dict, user_id: int | None = None) -> None:
     payload = {"event": event, "timestamp": datetime.now(timezone.utc).isoformat(), **extras}
@@ -179,6 +329,14 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
     db.add(session)
     db.commit()
 
+    _log_activity(
+        db,
+        "user_login",
+        {"user_id": user.id, "username": user.username, "role": user.role},
+        user_id=user.id,
+    )
+    db.commit()
+
     response.set_cookie(
         key=cookie_name(),
         value=session_id,
@@ -219,6 +377,18 @@ def list_users(_: User = Depends(require_admin), db: Session = Depends(get_db)) 
     return db.execute(select(User)).scalars().all()
 
 
+@app.get("/real-estates", response_model=list[UserOut])
+def list_real_estates(
+    _: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> list[UserOut]:
+    return (
+        db.execute(select(User).where(User.role == "real_estate"))
+        .scalars()
+        .all()
+    )
+
+
+
 @app.post("/users", response_model=UserOut, status_code=201)
 def create_user(payload: UserCreate, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> UserOut:
     if payload.role not in ALLOWED_ROLES:
@@ -231,12 +401,18 @@ def create_user(payload: UserCreate, _: User = Depends(require_admin), db: Sessi
         raise HTTPException(status_code=422, detail="invalid_name")
     if not _valid_cell_number(payload.cell_number):
         raise HTTPException(status_code=422, detail="invalid_cell_number")
+    if not _valid_email(payload.email):
+        raise HTTPException(status_code=422, detail="invalid_email")
+    if not _valid_cpf(payload.cpf):
+        raise HTTPException(status_code=422, detail="invalid_cpf")
     user = User(
         username=payload.username,
         password_hash=hash_password(payload.password),
         role=payload.role,
         name=payload.name,
         cell_number=payload.cell_number,
+        email=payload.email,
+        cpf=payload.cpf,
         extras=payload.extras,
     )
     db.add(user)
@@ -286,6 +462,10 @@ def update_user(
         raise HTTPException(status_code=422, detail="invalid_name")
     if payload.cell_number is not None and not _valid_cell_number(payload.cell_number):
         raise HTTPException(status_code=422, detail="invalid_cell_number")
+    if payload.email is not None and not _valid_email(payload.email):
+        raise HTTPException(status_code=422, detail="invalid_email")
+    if payload.cpf is not None and not _valid_cpf(payload.cpf):
+        raise HTTPException(status_code=422, detail="invalid_cpf")
 
     if payload.username is not None:
         user.username = payload.username
@@ -297,6 +477,10 @@ def update_user(
         user.name = payload.name
     if payload.cell_number is not None:
         user.cell_number = payload.cell_number
+    if payload.email is not None:
+        user.email = payload.email
+    if payload.cpf is not None:
+        user.cpf = payload.cpf
     if payload.extras is not None:
         user.extras = payload.extras
     try:
@@ -318,20 +502,73 @@ def list_properties(
     return db.execute(stmt).scalars().all()
 
 
+@app.get("/properties/{property_id}/summary")
+def property_summary(
+    property_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    prop = db.get(Property, property_id)
+    if prop is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    if user.role != "admin" and prop.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail="forbidden_owner")
+    extras = dict(prop.extras or {})
+    summary = summarize_property(extras)
+    return {"summary": summary}
+
+
 @app.post("/properties", response_model=PropertyOut, status_code=201)
 def create_property(
     payload: PropertyCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> PropertyOut:
+    if user.role not in {"admin", "property_owner"}:
+        raise HTTPException(status_code=403, detail="forbidden_role")
     owner_user_id = payload.owner_user_id
     if user.role != "admin":
         if owner_user_id != user.id:
             raise HTTPException(status_code=403, detail="forbidden_owner")
         owner_user_id = user.id
+    owner_user = db.get(User, owner_user_id)
+    if owner_user is None:
+        raise HTTPException(status_code=422, detail="invalid_owner")
+    extras = dict(payload.extras or {})
+    _validate_property_extras(extras)
+    if user.role == "admin":
+        email = extras.get("owner_email")
+        cpf = extras.get("owner_cpf")
+        cell = extras.get("owner_cell_number")
+        if email:
+            if not _valid_email(email):
+                raise HTTPException(status_code=422, detail="invalid_owner_email")
+            owner_user.email = email
+        if cpf:
+            if not _valid_cpf(cpf):
+                raise HTTPException(status_code=422, detail="invalid_owner_cpf")
+            owner_user.cpf = cpf
+        if cell:
+            if not _valid_cell_number(cell):
+                raise HTTPException(status_code=422, detail="invalid_owner_cell")
+            owner_user.cell_number = cell
+    extras["owner_contact"] = {
+        "name": owner_user.name,
+        "email": owner_user.email,
+        "cpf": owner_user.cpf,
+        "cell_number": owner_user.cell_number,
+    }
     # TODO: enforce at least one photo exists before property is considered active.
-    prop = Property(owner_user_id=owner_user_id, extras=payload.extras)
+    prop = Property(owner_user_id=owner_user_id, extras=extras)
     db.add(prop)
     db.commit()
     db.refresh(prop)
+    _sync_property_contract(db, prop, extras)
+    _log_activity(
+        db,
+        "property_created",
+        {"property_id": prop.id, "owner_user_id": owner_user_id},
+        user_id=user.id,
+    )
+    db.commit()
     return prop
 
 
@@ -342,6 +579,8 @@ def update_property(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> PropertyOut:
+    if user.role not in {"admin", "property_owner"}:
+        raise HTTPException(status_code=403, detail="forbidden_role")
     prop = db.get(Property, property_id)
     if prop is None:
         raise HTTPException(status_code=404, detail="not_found")
@@ -352,9 +591,45 @@ def update_property(
             raise HTTPException(status_code=403, detail="forbidden_owner")
         prop.owner_user_id = payload.owner_user_id
     if payload.extras is not None:
-        prop.extras = payload.extras
+        extras = dict(payload.extras or {})
+        _validate_property_extras(extras)
+        owner_user = db.get(User, prop.owner_user_id)
+        if owner_user and user.role == "admin":
+            email = extras.get("owner_email")
+            cpf = extras.get("owner_cpf")
+            cell = extras.get("owner_cell_number")
+            if email:
+                if not _valid_email(email):
+                    raise HTTPException(status_code=422, detail="invalid_owner_email")
+                owner_user.email = email
+            if cpf:
+                if not _valid_cpf(cpf):
+                    raise HTTPException(status_code=422, detail="invalid_owner_cpf")
+                owner_user.cpf = cpf
+            if cell:
+                if not _valid_cell_number(cell):
+                    raise HTTPException(status_code=422, detail="invalid_owner_cell")
+                owner_user.cell_number = cell
+        if owner_user:
+            extras["owner_contact"] = {
+                "name": owner_user.name,
+                "email": owner_user.email,
+                "cpf": owner_user.cpf,
+                "cell_number": owner_user.cell_number,
+            }
+        prop.extras = extras
+        _sync_property_contract(db, prop, extras)
+    else:
+        _sync_property_contract(db, prop, prop.extras or {})
     db.commit()
     db.refresh(prop)
+    _log_activity(
+        db,
+        "property_updated",
+        {"property_id": prop.id, "owner_user_id": prop.owner_user_id},
+        user_id=user.id,
+    )
+    db.commit()
     return prop
 
 
@@ -362,6 +637,8 @@ def update_property(
 def delete_property(
     property_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> Response:
+    if user.role not in {"admin", "property_owner"}:
+        raise HTTPException(status_code=403, detail="forbidden_role")
     prop = db.get(Property, property_id)
     if prop is None:
         raise HTTPException(status_code=404, detail="not_found")
@@ -385,6 +662,7 @@ def delete_property(
             delete(DocumentExtraction).where(DocumentExtraction.document_id.in_(doc_ids))
         )
         db.execute(delete(Document).where(Document.id.in_(doc_ids)))
+    db.execute(delete(PropertyContract).where(PropertyContract.property_id == property_id))
     db.execute(delete(WorkOrder).where(WorkOrder.property_id == property_id))
     db.delete(prop)
     db.commit()
@@ -439,7 +717,8 @@ def upload_document(
 @app.post("/properties/import", response_model=PropertyImportResponse)
 def import_property(
     file: UploadFile = File(...),
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> PropertyImportResponse:
     upload_dir = get_upload_dir()
     suffix = ""
@@ -452,14 +731,34 @@ def import_property(
     try:
         extraction = extract_text(str(file_path))
         prepared_text, meta = prepare_llm_input(extraction.text)
-        result = run_llm_extraction(prepared_text, file.filename or "")
+        result = run_llm_extraction(
+            prepared_text,
+            file.filename or "",
+            model_fields=None,
+            model_prompt=None,
+        )
+        quick_fields = quick_extract_contract_fields(extraction.text or "")
+        fields = result.fields or {}
+        for key, value in quick_fields.items():
+            if not fields.get(key) and value:
+                fields[key] = value
         payload = {
             "doc_type": result.doc_type,
-            "fields": result.fields or {},
+            "fields": fields,
             "summary": result.summary or "",
             "alerts": result.alerts or [],
             "confidence": result.confidence or 0.0,
         }
+        _log_activity(
+            db,
+            "property_import_preview",
+            {
+                "file_name": file.filename,
+                "llm_meta": meta,
+            },
+            user_id=user.id,
+        )
+        db.commit()
         return PropertyImportResponse(**payload)
     finally:
         if file_path.exists():
@@ -501,14 +800,72 @@ def upload_property_photos(
 
 @app.get("/documents", response_model=list[DocumentOut])
 def list_documents(
+    property_id: int | None = None,
     status: str | None = None,
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[DocumentOut]:
     stmt = select(Document)
+    if property_id is not None:
+        prop = db.get(Property, property_id)
+        if prop is None:
+            raise HTTPException(status_code=404, detail="property_not_found")
+        if user.role != "admin" and prop.owner_user_id != user.id:
+            raise HTTPException(status_code=403, detail="forbidden_owner")
+        stmt = stmt.where(Document.property_id == property_id)
+    elif user.role != "admin":
+        owned_ids = (
+            db.execute(select(Property.id).where(Property.owner_user_id == user.id))
+            .scalars()
+            .all()
+        )
+        if not owned_ids:
+            return []
+        stmt = stmt.where(Document.property_id.in_(owned_ids))
     if status:
         stmt = stmt.where(Document.extras["status"].astext == status)
+    docs = db.execute(stmt).scalars().all()
+    for doc in docs:
+        extras = dict(doc.extras or {})
+        prop = db.get(Property, doc.property_id) if doc.property_id else None
+        if prop:
+            owner = db.get(User, prop.owner_user_id)
+            extras["owner_name"] = owner.name if owner else None
+            extras["property_tag"] = prop.extras.get("tag") or prop.extras.get("label")
+        doc.extras = extras
+    return docs
+
+
+@app.get("/activity-log", response_model=list[ActivityLogOut])
+def list_activity_log(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[ActivityLogOut]:
+    stmt = select(ActivityLog).order_by(ActivityLog.id.desc()).limit(200)
+    if user.role != "admin":
+        stmt = stmt.where(ActivityLog.user_id == user.id)
     return db.execute(stmt).scalars().all()
+
+
+@app.get("/documents/{document_id}/download", include_in_schema=False)
+def download_document(
+    document_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    doc = db.get(Document, document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    prop = db.get(Property, doc.property_id)
+    if prop is None:
+        raise HTTPException(status_code=404, detail="property_not_found")
+    if user.role != "admin" and prop.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail="forbidden_owner")
+    file_path = doc.extras.get("path") if doc.extras else None
+    if not file_path or not Path(file_path).exists():
+        raise HTTPException(status_code=404, detail="file_missing")
+    filename = doc.extras.get("name") if doc.extras else None
+    return FileResponse(file_path, filename=filename)
 
 
 @app.get("/documents/{document_id}/extraction", response_model=DocumentExtractionOut)

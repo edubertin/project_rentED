@@ -1,16 +1,19 @@
+import hashlib
+import os
+import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import re
 from typing import List
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -31,6 +34,10 @@ from app.models import (
     Session as UserSession,
     User,
     WorkOrder,
+    WorkOrderInterest,
+    WorkOrderProof,
+    WorkOrderQuote,
+    WorkOrderToken,
 )
 from app.queue import is_inline_mode, try_enqueue
 from app.schemas import (
@@ -50,6 +57,11 @@ from app.schemas import (
     PropertyImportResponse,
     WorkOrderCreate,
     WorkOrderOut,
+    WorkOrderCreateResponse,
+    WorkOrderQuoteCreate,
+    WorkOrderInterestCreate,
+    WorkOrderApproveQuote,
+    WorkOrderPortalView,
     ActivityLogOut,
 )
 from app.storage import get_upload_dir
@@ -94,6 +106,9 @@ ALLOWED_ROLES = {
     "property_owner",
 }
 
+PORTAL_TOKEN_SECRET = os.environ.get("PORTAL_TOKEN_SECRET", "dev-secret")
+PORTAL_TOKEN_TTL_HOURS = int(os.environ.get("PORTAL_TOKEN_TTL_HOURS", "336"))
+
 
 def _valid_cell_number(value: str) -> bool:
     return bool(re.fullmatch(r"\(\d{3}\) \d{5} \d{4}", value))
@@ -127,6 +142,110 @@ def _valid_cpf(value: str) -> bool:
 
 def _sanitize_filename(filename: str) -> str:
     return Path(filename).name
+
+
+def _normalize_phone(value: str) -> str:
+    digits = re.sub(r"\D", "", value or "")
+    if not digits:
+        return value
+    if digits.startswith("55") and len(digits) in {12, 13}:
+        return f"+{digits}"
+    if len(digits) in {10, 11}:
+        return f"+55{digits}"
+    return f"+{digits}" if digits.startswith("00") else digits
+
+
+def _hash_portal_token(token: str) -> str:
+    payload = f"{PORTAL_TOKEN_SECRET}:{token}".encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _new_portal_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _portal_token_expires_at() -> datetime:
+    return datetime.now(timezone.utc) + timedelta(hours=PORTAL_TOKEN_TTL_HOURS)
+
+
+def _latest_proof(db: Session, work_order_id: int) -> WorkOrderProof | None:
+    return (
+        db.execute(
+            select(WorkOrderProof)
+            .where(WorkOrderProof.work_order_id == work_order_id)
+            .order_by(WorkOrderProof.id.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+
+
+def _delete_work_order(db: Session, work_order_id: int) -> None:
+    db.execute(delete(WorkOrderToken).where(WorkOrderToken.work_order_id == work_order_id))
+    db.execute(delete(WorkOrderProof).where(WorkOrderProof.work_order_id == work_order_id))
+    db.execute(delete(WorkOrderQuote).where(WorkOrderQuote.work_order_id == work_order_id))
+    db.execute(delete(WorkOrderInterest).where(WorkOrderInterest.work_order_id == work_order_id))
+    db.execute(delete(WorkOrder).where(WorkOrder.id == work_order_id))
+
+
+def _get_portal_token(db: Session, token: str) -> WorkOrderToken:
+    token_hash = _hash_portal_token(token)
+    row = db.execute(
+        select(WorkOrderToken).where(WorkOrderToken.token_hash == token_hash)
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="invalid_token")
+    if not row.is_active:
+        raise HTTPException(status_code=403, detail="token_inactive")
+    if row.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=403, detail="token_expired")
+    return row
+
+
+def _work_order_summary(work_order: WorkOrder, prop: Property | None) -> dict:
+    extras = dict(work_order.extras or {})
+    if prop:
+        extras["property_tag"] = prop.extras.get("tag") or prop.extras.get("label")
+        extras["property_address"] = prop.extras.get("property_address")
+    return {
+        "id": work_order.id,
+        "property_id": work_order.property_id,
+        "type": work_order.type,
+        "status": work_order.status,
+        "title": work_order.title,
+        "description": work_order.description,
+        "offer_amount": float(work_order.offer_amount) if work_order.offer_amount is not None else None,
+        "approved_amount": float(work_order.approved_amount) if work_order.approved_amount is not None else None,
+        "assigned_interest_id": work_order.assigned_interest_id,
+        "created_by_user_id": work_order.created_by_user_id,
+        "created_at": work_order.created_at.isoformat() if work_order.created_at else None,
+        "updated_at": work_order.updated_at.isoformat() if work_order.updated_at else None,
+        "extras": extras,
+    }
+
+
+def _portal_allowed_action(token_row: WorkOrderToken, work_order: WorkOrder) -> str:
+    if work_order.status in {"closed", "canceled"}:
+        return "read_only"
+    if token_row.scope == "quote_portal":
+        if work_order.type != "quote":
+            return "read_only"
+        if work_order.status in {"quote_requested", "quote_submitted"}:
+            return "submit_quote"
+        if work_order.status in {"approved_for_execution", "in_progress", "rework_requested"}:
+            return "submit_proof"
+    if token_row.scope == "fixed_interest":
+        if work_order.type == "fixed" and work_order.status == "offer_open":
+            return "submit_interest"
+    if token_row.scope == "execution":
+        if work_order.type == "fixed" and work_order.status in {
+            "assigned",
+            "in_progress",
+            "rework_requested",
+        }:
+            return "submit_proof"
+    return "read_only"
 
 
 def _upload_photo(file: UploadFile) -> dict:
@@ -270,8 +389,22 @@ def _sync_property_contract(db: Session, prop: Property, extras: dict) -> None:
     contract.contract_fields = extras.get("contract_fields") or extras
 
 
-def _log_activity(db: Session, event: str, extras: dict, user_id: int | None = None) -> None:
-    payload = {"event": event, "timestamp": datetime.now(timezone.utc).isoformat(), **extras}
+def _log_activity(
+    db: Session,
+    event: str,
+    extras: dict,
+    user_id: int | None = None,
+    actor_type: str = "admin",
+    token_id: int | None = None,
+) -> None:
+    payload = {
+        "event": event,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "actor_type": actor_type,
+        **extras,
+    }
+    if token_id is not None:
+        payload["token_id"] = token_id
     db.add(ActivityLog(user_id=user_id, extras=payload))
 
 
@@ -663,7 +796,17 @@ def delete_property(
         )
         db.execute(delete(Document).where(Document.id.in_(doc_ids)))
     db.execute(delete(PropertyContract).where(PropertyContract.property_id == property_id))
-    db.execute(delete(WorkOrder).where(WorkOrder.property_id == property_id))
+    work_order_ids = (
+        db.execute(select(WorkOrder.id).where(WorkOrder.property_id == property_id))
+        .scalars()
+        .all()
+    )
+    if work_order_ids:
+        db.execute(delete(WorkOrderToken).where(WorkOrderToken.work_order_id.in_(work_order_ids)))
+        db.execute(delete(WorkOrderProof).where(WorkOrderProof.work_order_id.in_(work_order_ids)))
+        db.execute(delete(WorkOrderQuote).where(WorkOrderQuote.work_order_id.in_(work_order_ids)))
+        db.execute(delete(WorkOrderInterest).where(WorkOrderInterest.work_order_id.in_(work_order_ids)))
+        db.execute(delete(WorkOrder).where(WorkOrder.id.in_(work_order_ids)))
     db.delete(prop)
     db.commit()
     return Response(status_code=204)
@@ -708,8 +851,13 @@ def upload_document(
             process_document_job(doc.id)
         else:
             try_enqueue(process_document_job, doc.id)
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail="queue_unavailable") from exc
+    except Exception:
+        _log_activity(
+            db,
+            "document_process_failed",
+            {"document_id": doc.id, "status": "uploaded"},
+        )
+        db.commit()
 
     return doc
 
@@ -937,22 +1085,552 @@ def process_document(
     return DocumentProcessResponse(id=doc.id, status=doc.extras.get("status", ""))
 
 
-@app.post("/work-orders", response_model=WorkOrderOut, status_code=201)
+@app.post("/work-orders", response_model=WorkOrderCreateResponse, status_code=201)
 def create_work_order(
-    payload: WorkOrderCreate, _: User = Depends(get_current_user), db: Session = Depends(get_db)
-) -> WorkOrderOut:
+    payload: WorkOrderCreate,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> WorkOrderCreateResponse:
+    if payload.type not in {"quote", "fixed"}:
+        raise HTTPException(status_code=422, detail="invalid_work_order_type")
+    if payload.type == "fixed":
+        if payload.offer_amount is None or payload.offer_amount <= 0:
+            raise HTTPException(status_code=422, detail="missing_offer_amount")
+
     prop = db.get(Property, payload.property_id)
     if prop is None:
         raise HTTPException(status_code=404, detail="property_not_found")
-    work_order = WorkOrder(property_id=payload.property_id, extras=payload.extras)
+    now = datetime.now(timezone.utc)
+    work_order = WorkOrder(
+        property_id=payload.property_id,
+        type=payload.type,
+        status="quote_requested" if payload.type == "quote" else "offer_open",
+        title=payload.title,
+        description=payload.description,
+        offer_amount=payload.offer_amount if payload.type == "fixed" else None,
+        approved_amount=None,
+        created_by_user_id=user.id,
+        created_at=now,
+        updated_at=now,
+        extras={},
+    )
     db.add(work_order)
     db.commit()
     db.refresh(work_order)
-    return work_order
+
+    token_value = _new_portal_token()
+    token_hash = _hash_portal_token(token_value)
+    token = WorkOrderToken(
+        work_order_id=work_order.id,
+        token_hash=token_hash,
+        scope="quote_portal" if payload.type == "quote" else "fixed_interest",
+        expires_at=_portal_token_expires_at(),
+        created_at=now,
+        is_active=True,
+    )
+    db.add(token)
+    _log_activity(
+        db,
+        "work_order_created",
+        {"work_order_id": work_order.id, "property_id": work_order.property_id},
+        user_id=user.id,
+    )
+    db.commit()
+    db.refresh(token)
+
+    portal_links = {"portal": f"/p/wo/{token_value}"}
+    return WorkOrderCreateResponse(
+        work_order=WorkOrderOut.model_validate(work_order),
+        portal_links=portal_links,
+    )
 
 
 @app.get("/work-orders", response_model=list[WorkOrderOut])
 def list_work_orders(
-    _: User = Depends(get_current_user), db: Session = Depends(get_db)
+    property_id: int | None = None,
+    status: str | None = None,
+    type: str | None = None,
+    search: str | None = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> list[WorkOrderOut]:
-    return db.execute(select(WorkOrder)).scalars().all()
+    stmt = select(WorkOrder)
+    if property_id is not None:
+        stmt = stmt.where(WorkOrder.property_id == property_id)
+    if status:
+        stmt = stmt.where(WorkOrder.status == status)
+    if type:
+        stmt = stmt.where(WorkOrder.type == type)
+    if search:
+        stmt = stmt.where(
+            or_(
+                WorkOrder.title.ilike(f"%{search}%"),
+                WorkOrder.description.ilike(f"%{search}%"),
+            )
+        )
+    if user.role != "admin":
+        owned_ids = (
+            db.execute(select(Property.id).where(Property.owner_user_id == user.id))
+            .scalars()
+            .all()
+        )
+        if not owned_ids:
+            return []
+        stmt = stmt.where(WorkOrder.property_id.in_(owned_ids))
+
+    work_orders = db.execute(stmt.order_by(WorkOrder.id.desc())).scalars().all()
+    for item in work_orders:
+        prop = db.get(Property, item.property_id)
+        extras = dict(item.extras or {})
+        if prop:
+            extras["property_tag"] = prop.extras.get("tag") or prop.extras.get("label")
+            extras["property_address"] = prop.extras.get("property_address")
+        item.extras = extras
+    return work_orders
+
+
+@app.get("/work-orders/{work_order_id}")
+def get_work_order(
+    work_order_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    work_order = db.get(WorkOrder, work_order_id)
+    if work_order is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    prop = db.get(Property, work_order.property_id)
+    if user.role != "admin" and prop and prop.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail="forbidden_owner")
+    summary = _work_order_summary(work_order, prop)
+
+    quotes = db.execute(
+        select(WorkOrderQuote).where(WorkOrderQuote.work_order_id == work_order_id)
+    ).scalars().all()
+    interests = db.execute(
+        select(WorkOrderInterest).where(WorkOrderInterest.work_order_id == work_order_id)
+    ).scalars().all()
+    proofs = db.execute(
+        select(WorkOrderProof).where(WorkOrderProof.work_order_id == work_order_id)
+    ).scalars().all()
+    tokens = db.execute(
+        select(WorkOrderToken).where(WorkOrderToken.work_order_id == work_order_id)
+    ).scalars().all()
+
+    def _serialize_row(row) -> dict:
+        data = row.__dict__.copy()
+        data.pop("_sa_instance_state", None)
+        for key, value in data.items():
+            if isinstance(value, datetime):
+                data[key] = value.isoformat()
+        return data
+
+    return {
+        "work_order": summary,
+        "quotes": [_serialize_row(q) for q in quotes],
+        "interests": [_serialize_row(i) for i in interests],
+        "proofs": [_serialize_row(p) for p in proofs],
+        "tokens": [
+            {
+                "id": t.id,
+                "scope": t.scope,
+                "expires_at": t.expires_at.isoformat(),
+                "quote_id": t.quote_id,
+                "interest_id": t.interest_id,
+                "is_active": t.is_active,
+                "used_at": t.used_at.isoformat() if t.used_at else None,
+                "created_at": t.created_at.isoformat(),
+            }
+            for t in tokens
+        ],
+    }
+
+
+@app.post("/work-orders/{work_order_id}/approve-quote/{quote_id}")
+def approve_work_order_quote(
+    work_order_id: int,
+    quote_id: int,
+    payload: WorkOrderApproveQuote,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    work_order = db.get(WorkOrder, work_order_id)
+    if work_order is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    if work_order.type != "quote":
+        raise HTTPException(status_code=422, detail="invalid_work_order_type")
+    quote = db.get(WorkOrderQuote, quote_id)
+    if quote is None or quote.work_order_id != work_order_id:
+        raise HTTPException(status_code=404, detail="quote_not_found")
+
+    quote.status = "approved"
+    work_order.approved_amount = payload.approved_amount
+    work_order.status = "approved_for_execution"
+    work_order.updated_at = datetime.now(timezone.utc)
+    db.execute(
+        WorkOrderQuote.__table__.update()
+        .where(WorkOrderQuote.work_order_id == work_order_id, WorkOrderQuote.id != quote_id)
+        .values(status="rejected")
+    )
+    _log_activity(
+        db,
+        "quote_approved",
+        {"work_order_id": work_order_id, "quote_id": quote_id},
+    )
+    db.commit()
+    return {"status": "ok"}
+
+
+@app.post("/work-orders/{work_order_id}/select-interest/{interest_id}")
+def select_work_order_interest(
+    work_order_id: int,
+    interest_id: int,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    work_order = db.get(WorkOrder, work_order_id)
+    if work_order is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    if work_order.type != "fixed":
+        raise HTTPException(status_code=422, detail="invalid_work_order_type")
+    interest = db.get(WorkOrderInterest, interest_id)
+    if interest is None or interest.work_order_id != work_order_id:
+        raise HTTPException(status_code=404, detail="interest_not_found")
+
+    work_order.assigned_interest_id = interest_id
+    work_order.status = "assigned"
+    work_order.updated_at = datetime.now(timezone.utc)
+    interest.status = "selected"
+    db.execute(
+        WorkOrderInterest.__table__.update()
+        .where(
+            WorkOrderInterest.work_order_id == work_order_id,
+            WorkOrderInterest.id != interest_id,
+        )
+        .values(status="rejected")
+    )
+    db.execute(
+        WorkOrderToken.__table__.update()
+        .where(
+            WorkOrderToken.work_order_id == work_order_id,
+            WorkOrderToken.scope == "fixed_interest",
+        )
+        .values(is_active=False)
+    )
+    token_value = _new_portal_token()
+    token_hash = _hash_portal_token(token_value)
+    token = WorkOrderToken(
+        work_order_id=work_order_id,
+        token_hash=token_hash,
+        scope="execution",
+        expires_at=_portal_token_expires_at(),
+        interest_id=interest_id,
+        is_active=True,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(token)
+    _log_activity(
+        db,
+        "provider_selected",
+        {"work_order_id": work_order_id, "interest_id": interest_id},
+    )
+    db.commit()
+    return {"status": "ok", "portal_link": f"/p/wo/{token_value}"}
+
+
+@app.post("/work-orders/{work_order_id}/request-rework")
+def request_work_order_rework(
+    work_order_id: int,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    work_order = db.get(WorkOrder, work_order_id)
+    if work_order is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    proof = _latest_proof(db, work_order_id)
+    if proof is None:
+        raise HTTPException(status_code=404, detail="proof_not_found")
+    proof.status = "rework_requested"
+    work_order.status = "rework_requested"
+    work_order.updated_at = datetime.now(timezone.utc)
+    _log_activity(
+        db,
+        "work_order_rework_requested",
+        {"work_order_id": work_order_id, "proof_id": proof.id},
+    )
+    db.commit()
+    return {"status": "ok"}
+
+
+@app.post("/work-orders/{work_order_id}/approve-proof")
+def approve_work_order_proof(
+    work_order_id: int,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    work_order = db.get(WorkOrder, work_order_id)
+    if work_order is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    proof = _latest_proof(db, work_order_id)
+    if proof is None:
+        raise HTTPException(status_code=404, detail="proof_not_found")
+    proof.status = "approved"
+    work_order.status = "closed"
+    work_order.updated_at = datetime.now(timezone.utc)
+    _log_activity(
+        db,
+        "proof_approved",
+        {"work_order_id": work_order_id, "proof_id": proof.id},
+        user_id=user.id,
+    )
+    _log_activity(
+        db,
+        "work_order_closed",
+        {"work_order_id": work_order_id, "proof_id": proof.id},
+        user_id=user.id,
+    )
+    db.commit()
+    return {"status": "ok"}
+
+
+@app.post("/work-orders/{work_order_id}/cancel")
+def cancel_work_order(
+    work_order_id: int,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    work_order = db.get(WorkOrder, work_order_id)
+    if work_order is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    work_order.status = "canceled"
+    work_order.updated_at = datetime.now(timezone.utc)
+    db.execute(
+        WorkOrderToken.__table__.update()
+        .where(WorkOrderToken.work_order_id == work_order_id)
+        .values(is_active=False)
+    )
+    _log_activity(
+        db,
+        "work_order_canceled",
+        {"work_order_id": work_order_id},
+    )
+    db.commit()
+    return {"status": "ok"}
+
+
+@app.delete("/work-orders/{work_order_id}", status_code=204)
+def delete_work_order(
+    work_order_id: int,
+    user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> Response:
+    work_order = db.get(WorkOrder, work_order_id)
+    if work_order is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    _delete_work_order(db, work_order_id)
+    _log_activity(
+        db,
+        "work_order_deleted",
+        {"work_order_id": work_order_id, "property_id": work_order.property_id},
+        user_id=user.id,
+    )
+    db.commit()
+    return Response(status_code=204)
+
+
+@app.get("/portal/work-orders/{token}", response_model=WorkOrderPortalView)
+def get_portal_work_order(token: str, db: Session = Depends(get_db)) -> WorkOrderPortalView:
+    token_row = _get_portal_token(db, token)
+    work_order = db.get(WorkOrder, token_row.work_order_id)
+    if work_order is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    prop = db.get(Property, work_order.property_id)
+    allowed_action = _portal_allowed_action(token_row, work_order)
+    view = _work_order_summary(work_order, prop)
+    view["property_address_full"] = prop.extras.get("property_address") if prop else None
+
+    quote = None
+    if token_row.quote_id:
+        q = db.get(WorkOrderQuote, token_row.quote_id)
+        if q:
+            quote = {
+                "id": q.id,
+                "provider_name": q.provider_name,
+                "provider_phone": q.provider_phone,
+                "lines": q.lines,
+                "total_amount": float(q.total_amount),
+                "status": q.status,
+            }
+    interest = None
+    if token_row.interest_id:
+        i = db.get(WorkOrderInterest, token_row.interest_id)
+        if i:
+            interest = {
+                "id": i.id,
+                "provider_name": i.provider_name,
+                "provider_phone": i.provider_phone,
+                "status": i.status,
+            }
+    return WorkOrderPortalView(
+        work_order=view,
+        allowed_action=allowed_action,
+        quote=quote,
+        interest=interest,
+    )
+
+
+@app.post("/portal/work-orders/{token}/quote")
+def submit_portal_quote(
+    token: str,
+    payload: WorkOrderQuoteCreate,
+    db: Session = Depends(get_db),
+) -> dict:
+    token_row = _get_portal_token(db, token)
+    work_order = db.get(WorkOrder, token_row.work_order_id)
+    if work_order is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    if token_row.scope != "quote_portal" or work_order.type != "quote":
+        raise HTTPException(status_code=403, detail="forbidden_scope")
+    if work_order.status not in {"quote_requested", "quote_submitted"}:
+        raise HTTPException(status_code=422, detail="invalid_status")
+    if token_row.quote_id:
+        raise HTTPException(status_code=409, detail="quote_already_submitted")
+    now = datetime.now(timezone.utc)
+    quote = WorkOrderQuote(
+        work_order_id=work_order.id,
+        provider_name=payload.provider_name,
+        provider_phone=_normalize_phone(payload.provider_phone),
+        lines=payload.lines,
+        total_amount=payload.total_amount,
+        status="submitted",
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(quote)
+    db.commit()
+    db.refresh(quote)
+    token_row.quote_id = quote.id
+    work_order.status = "quote_submitted"
+    work_order.updated_at = now
+    _log_activity(
+        db,
+        "quote_submitted",
+        {"work_order_id": work_order.id, "quote_id": quote.id},
+        actor_type="portal",
+        token_id=token_row.id,
+    )
+    db.commit()
+    return {"status": "ok"}
+
+
+@app.post("/portal/work-orders/{token}/interest")
+def submit_portal_interest(
+    token: str,
+    payload: WorkOrderInterestCreate,
+    db: Session = Depends(get_db),
+) -> dict:
+    token_row = _get_portal_token(db, token)
+    work_order = db.get(WorkOrder, token_row.work_order_id)
+    if work_order is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    if token_row.scope != "fixed_interest" or work_order.type != "fixed":
+        raise HTTPException(status_code=403, detail="forbidden_scope")
+    if work_order.status != "offer_open":
+        raise HTTPException(status_code=422, detail="invalid_status")
+    now = datetime.now(timezone.utc)
+    interest = WorkOrderInterest(
+        work_order_id=work_order.id,
+        provider_name=payload.provider_name,
+        provider_phone=_normalize_phone(payload.provider_phone),
+        status="submitted",
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(interest)
+    db.commit()
+    db.refresh(interest)
+    token_row.interest_id = interest.id
+    _log_activity(
+        db,
+        "interest_submitted",
+        {"work_order_id": work_order.id, "interest_id": interest.id},
+        actor_type="portal",
+        token_id=token_row.id,
+    )
+    db.commit()
+    return {"status": "ok"}
+
+
+@app.post("/portal/work-orders/{token}/submit-proof")
+def submit_portal_proof(
+    token: str,
+    provider_name: str = Form(...),
+    provider_phone: str = Form(...),
+    pix_key_type: str = Form(...),
+    pix_key_value: str = Form(...),
+    pix_receiver_name: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> dict:
+    token_row = _get_portal_token(db, token)
+    work_order = db.get(WorkOrder, token_row.work_order_id)
+    if work_order is None:
+        raise HTTPException(status_code=404, detail="not_found")
+    if work_order.status not in {
+        "approved_for_execution",
+        "in_progress",
+        "rework_requested",
+        "assigned",
+    }:
+        raise HTTPException(status_code=422, detail="invalid_status")
+    if work_order.type == "quote" and token_row.scope != "quote_portal":
+        raise HTTPException(status_code=403, detail="forbidden_scope")
+    if work_order.type == "fixed" and token_row.scope != "execution":
+        raise HTTPException(status_code=403, detail="forbidden_scope")
+
+    upload_dir = get_upload_dir()
+    suffix = ""
+    if file.filename and "." in file.filename:
+        suffix = "." + file.filename.split(".")[-1]
+    file_id = f"proof_{uuid.uuid4().hex}{suffix}"
+    file_path = upload_dir / file_id
+    with file_path.open("wb") as handle:
+        handle.write(file.file.read())
+
+    doc = Document(
+        property_id=work_order.property_id,
+        extras={
+            "path": str(file_path),
+            "status": "uploaded",
+            "name": file.filename,
+            "kind": "work_order_proof",
+        },
+    )
+    db.add(doc)
+    db.commit()
+    db.refresh(doc)
+
+    now = datetime.now(timezone.utc)
+    proof = WorkOrderProof(
+        work_order_id=work_order.id,
+        provider_name=provider_name,
+        provider_phone=_normalize_phone(provider_phone),
+        pix_key_type=pix_key_type,
+        pix_key_value=pix_key_value,
+        pix_receiver_name=pix_receiver_name,
+        document_id=doc.id,
+        status="submitted",
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(proof)
+    work_order.status = "proof_submitted"
+    work_order.updated_at = now
+    _log_activity(
+        db,
+        "proof_submitted",
+        {"work_order_id": work_order.id, "proof_id": proof.id, "document_id": doc.id},
+        actor_type="portal",
+        token_id=token_row.id,
+    )
+    db.commit()
+    return {"status": "ok"}

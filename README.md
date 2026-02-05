@@ -25,10 +25,10 @@ contract data, and keeps owners, documents, and activity logs organized for ongo
 8. Seed Data
 9. Key Workflows
 10. Sample Contracts for Testing
-11. Dashboard Docs and Swagger
-12. Testing
-13. Security Notes
-14. Roadmap / Next Steps
+11. Architecture Decisions (ADRs)
+12. Dashboard Docs and Swagger
+13. Testing
+14. Security Notes
 15. Contributing
 16. License
 
@@ -42,6 +42,9 @@ rentED focuses on clean contracts, strict ownership rules, and fast onboarding:
 - Documents linked to properties with download access
 - Activity log per user (admin sees all)
 
+Suggested GitHub Topics (SaaS-standard):
+`saas`, `proptech`, `fastapi`, `nextjs`, `postgres`, `redis`, `rq`, `ai`, `llm`, `openai`
+
 ---
 
 ## 2. Features
@@ -52,6 +55,8 @@ rentED focuses on clean contracts, strict ownership rules, and fast onboarding:
 - Contract import suggestions (LLM) inside Create/Edit Property
 - Documents linked to properties with downloads
 - Activity log for core actions (login, create/update property)
+- Work orders module (quote + fixed offer)
+- Provider portal with expirable token links
 - Alembic migrations and Docker-first setup
 
 ---
@@ -95,10 +100,22 @@ backend/
 frontend/
   components/
   pages/
+    work-orders/
+    p/wo/
   styles/
   lib/
   next.config.js
   package.json
+
+docs/
+  adr/
+    0001-public-portal-by-token.md
+    0002-work-order-status-model.md
+    0003-proof-requires-pix-and-photo.md
+    0004-token-hash-and-expiration.md
+    0005-temporary-provider-identity.md
+    0006-reuse-documents-storage.md
+    0007-domain-event-log.md
 
 docker-compose.yml
 .env.example
@@ -154,6 +171,7 @@ Defined in `.env.example`:
 - `SESSION_TTL_MINUTES`, `SESSION_COOKIE_NAME`, `COOKIE_SECURE`
 - `SEED_ADMIN_USERNAME`, `SEED_ADMIN_PASSWORD`, `SEED_ADMIN_NAME`, `SEED_ADMIN_CELL`,
   `SEED_ADMIN_EMAIL`, `SEED_ADMIN_CPF`
+- `PORTAL_TOKEN_SECRET`, `PORTAL_TOKEN_TTL_HOURS`
 
 Optional:
 - `UPLOAD_DIR` (default: `/app/data/uploads`)
@@ -210,6 +228,27 @@ The contract document is stored and linked to the property automatically.
 - `GET /activity-log`
 - Admin sees all entries, other users see only their own.
 
+### 9.5 Work Orders
+Admin dashboard endpoints:
+- `GET /work-orders`
+- `POST /work-orders`
+- `GET /work-orders/{id}`
+- `POST /work-orders/{id}/approve-quote/{quote_id}`
+- `POST /work-orders/{id}/select-interest/{interest_id}`
+- `POST /work-orders/{id}/request-rework`
+- `POST /work-orders/{id}/approve-proof`
+- `POST /work-orders/{id}/cancel`
+- `DELETE /work-orders/{id}`
+
+Provider portal (tokenized, no session cookie):
+- `GET /portal/work-orders/{token}`
+- `POST /portal/work-orders/{token}/quote`
+- `POST /portal/work-orders/{token}/interest`
+- `POST /portal/work-orders/{token}/submit-proof`
+
+Portal links are generated at creation (quote or fixed interest), and an execution link
+is generated when a provider is selected for fixed offers.
+
 ---
 
 ## 10. Sample Contracts for Testing
@@ -223,14 +262,20 @@ Suggested flow:
 
 ---
 
-## 11. Dashboard Docs and Swagger
+## 11. Architecture Decisions (ADRs)
+See `docs/adr/` for the decision records covering the provider portal, status model,
+token hashing, temporary provider identity, proof requirements, and event logging.
+
+---
+
+## 12. Dashboard Docs and Swagger
 - `/docs` provides a custom interactive dashboard.
 - `/swagger` provides full OpenAPI schemas.
 - `/openapi.json` returns raw OpenAPI JSON.
 
 ---
 
-## 12. Testing
+## 13. Testing
 Run tests inside the container:
 ```
 docker compose run --rm api pytest
@@ -238,20 +283,12 @@ docker compose run --rm api pytest
 
 ---
 
-## 13. Security Notes
+## 14. Security Notes
 - All CRUD endpoints require a session cookie.
 - Admin accounts cannot be deleted via the API.
 - Uploads are stored locally in `./data/uploads` (bind-mounted).
 - Do not commit `.env` or API keys.
 - Exposed ports are for local dev only; lock them down in production.
-
----
-
-## 14. Roadmap / Next Steps
-- Work orders workflow (UI + API)
-- More activity log coverage
-- Contract templates and multi-model support
-- Storage backend abstraction (S3/MinIO)
 
 ---
 

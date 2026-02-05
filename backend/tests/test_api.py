@@ -19,6 +19,10 @@ from app.models import (
     Session,
     User,
     WorkOrder,
+    WorkOrderInterest,
+    WorkOrderProof,
+    WorkOrderQuote,
+    WorkOrderToken,
 )
 from app.worker import process_document_job
 
@@ -77,9 +81,35 @@ def _cleanup_by_username(username: str) -> None:
                             DocumentExtraction.document_id.in_(doc_ids)
                         )
                     )
-                    session.execute(delete(Document).where(Document.id.in_(doc_ids)))
-                session.execute(delete(WorkOrder).where(WorkOrder.property_id.in_(prop_ids)))
-                session.execute(delete(Property).where(Property.id.in_(prop_ids)))
+                session.execute(delete(Document).where(Document.id.in_(doc_ids)))
+                work_order_ids = (
+                    session.execute(select(WorkOrder.id).where(WorkOrder.property_id.in_(prop_ids)))
+                    .scalars()
+                    .all()
+                )
+                if work_order_ids:
+                    session.execute(
+                        delete(WorkOrderToken).where(
+                            WorkOrderToken.work_order_id.in_(work_order_ids)
+                        )
+                    )
+                    session.execute(
+                        delete(WorkOrderProof).where(
+                            WorkOrderProof.work_order_id.in_(work_order_ids)
+                        )
+                    )
+                    session.execute(
+                        delete(WorkOrderQuote).where(
+                            WorkOrderQuote.work_order_id.in_(work_order_ids)
+                        )
+                    )
+                    session.execute(
+                        delete(WorkOrderInterest).where(
+                            WorkOrderInterest.work_order_id.in_(work_order_ids)
+                        )
+                    )
+                    session.execute(delete(WorkOrder).where(WorkOrder.id.in_(work_order_ids)))
+            session.execute(delete(Property).where(Property.id.in_(prop_ids)))
             session.execute(delete(User).where(User.id == user.id))
             session.commit()
     finally:
@@ -159,6 +189,81 @@ def test_properties_crud():
     assert any(item["id"] == prop_id for item in resp.json())
 
     resp = client.delete(f"/properties/{prop_id}")
+    assert resp.status_code == 204
+    _cleanup_by_username(username)
+
+
+def test_work_order_create_quote():
+    role = "admin"
+    username = f"admin{uuid.uuid4().hex[:8]}"
+    password = "Admin12345!"
+    user_id = _create_user(role, username=username, password=password)
+    _login(username, password)
+    prop = client.post(
+        "/properties",
+        json={
+            "owner_user_id": user_id,
+            "extras": {
+                "tag": "WO",
+                "property_address": "Rua Teste, 99",
+                "bedrooms": 1,
+                "bathrooms": 1,
+                "parking_spaces": 1,
+                "is_rented": False,
+                "desired_rent_value": 150000,
+                "rent_currency": "BRL",
+            },
+        },
+    ).json()
+    resp = client.post(
+        "/work-orders",
+        json={
+            "property_id": prop["id"],
+            "type": "quote",
+            "title": "Fix leaking pipe",
+            "description": "Need repair in kitchen sink.",
+        },
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["work_order"]["status"] == "quote_requested"
+    assert "portal" in data["portal_links"]
+    _cleanup_by_username(username)
+
+
+def test_work_order_delete():
+    role = "admin"
+    username = f"admin{uuid.uuid4().hex[:8]}"
+    password = "Admin12345!"
+    user_id = _create_user(role, username=username, password=password)
+    _login(username, password)
+    prop = client.post(
+        "/properties",
+        json={
+            "owner_user_id": user_id,
+            "extras": {
+                "tag": "WO",
+                "property_address": "Rua Teste, 101",
+                "bedrooms": 1,
+                "bathrooms": 1,
+                "parking_spaces": 1,
+                "is_rented": False,
+                "desired_rent_value": 150000,
+                "rent_currency": "BRL",
+            },
+        },
+    ).json()
+    created = client.post(
+        "/work-orders",
+        json={
+            "property_id": prop["id"],
+            "type": "quote",
+            "title": "Delete test",
+            "description": "Delete work order.",
+        },
+    ).json()
+    work_order_id = created["work_order"]["id"]
+    resp = client.delete(f"/work-orders/{work_order_id}")
     assert resp.status_code == 204
     _cleanup_by_username(username)
 

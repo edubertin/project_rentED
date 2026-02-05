@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -134,13 +135,64 @@ class DocumentReviewRequest(BaseModel):
 
 class WorkOrderCreate(BaseModel):
     property_id: int
-    extras: Dict[str, Any] = Field(default_factory=dict)
+    type: str = Field(min_length=3, max_length=20)
+    title: str = Field(min_length=3, max_length=160)
+    description: str = Field(min_length=3, max_length=2000)
+    offer_amount: float | None = None
 
 
 class WorkOrderOut(BaseModel):
     id: int
     property_id: int
+    type: str
+    status: str
+    title: str
+    description: str
+    offer_amount: float | None = None
+    approved_amount: float | None = None
+    assigned_interest_id: int | None = None
+    created_by_user_id: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
     extras: Dict[str, Any]
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WorkOrderCreateResponse(BaseModel):
+    work_order: WorkOrderOut
+    portal_links: Dict[str, str]
+
+
+class WorkOrderQuoteCreate(BaseModel):
+    provider_name: str = Field(min_length=2, max_length=160)
+    provider_phone: str = Field(min_length=6, max_length=40)
+    lines: list[dict] = Field(default_factory=list)
+    total_amount: float
+
+
+class WorkOrderInterestCreate(BaseModel):
+    provider_name: str = Field(min_length=2, max_length=160)
+    provider_phone: str = Field(min_length=6, max_length=40)
+    note: str | None = None
+
+
+class WorkOrderProofCreate(BaseModel):
+    provider_name: str = Field(min_length=2, max_length=160)
+    provider_phone: str = Field(min_length=6, max_length=40)
+    pix_key_type: str = Field(min_length=3, max_length=20)
+    pix_key_value: str = Field(min_length=3, max_length=120)
+    pix_receiver_name: str = Field(min_length=2, max_length=160)
+
+
+class WorkOrderApproveQuote(BaseModel):
+    approved_amount: float
+
+
+class WorkOrderPortalView(BaseModel):
+    work_order: Dict[str, Any]
+    allowed_action: str
+    quote: Dict[str, Any] | None = None
+    interest: Dict[str, Any] | None = None
 
 
 class ActivityLogOut(BaseModel):

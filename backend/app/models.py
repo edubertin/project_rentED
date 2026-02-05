@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import text
 
@@ -130,10 +130,75 @@ class WorkOrder(Base):
     __tablename__ = "work_orders"
 
     id = Column(Integer, primary_key=True)
-    # TODO: confirm whether work orders must belong to a property.
     property_id = Column(Integer, ForeignKey("properties.id"), nullable=False)
-    # TODO: define core work order fields beyond extras.
+    type = Column(String(20), nullable=False)
+    status = Column(String(40), nullable=False)
+    title = Column(String(160), nullable=False)
+    description = Column(String(2000), nullable=False)
+    offer_amount = Column(Numeric(12, 2), nullable=True)
+    approved_amount = Column(Numeric(12, 2), nullable=True)
+    assigned_interest_id = Column(Integer, ForeignKey("work_order_interests.id"), nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
     extras = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+
+
+class WorkOrderQuote(Base):
+    __tablename__ = "work_order_quotes"
+
+    id = Column(Integer, primary_key=True)
+    work_order_id = Column(Integer, ForeignKey("work_orders.id"), nullable=False)
+    provider_name = Column(String(160), nullable=False)
+    provider_phone = Column(String(40), nullable=False)
+    lines = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    total_amount = Column(Numeric(12, 2), nullable=False)
+    status = Column(String(40), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class WorkOrderInterest(Base):
+    __tablename__ = "work_order_interests"
+
+    id = Column(Integer, primary_key=True)
+    work_order_id = Column(Integer, ForeignKey("work_orders.id"), nullable=False)
+    provider_name = Column(String(160), nullable=False)
+    provider_phone = Column(String(40), nullable=False)
+    status = Column(String(40), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class WorkOrderProof(Base):
+    __tablename__ = "work_order_proofs"
+
+    id = Column(Integer, primary_key=True)
+    work_order_id = Column(Integer, ForeignKey("work_orders.id"), nullable=False)
+    provider_name = Column(String(160), nullable=False)
+    provider_phone = Column(String(40), nullable=False)
+    pix_key_type = Column(String(20), nullable=False)
+    pix_key_value = Column(String(120), nullable=False)
+    pix_receiver_name = Column(String(160), nullable=False)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    status = Column(String(40), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class WorkOrderToken(Base):
+    __tablename__ = "work_order_tokens"
+
+    id = Column(Integer, primary_key=True)
+    work_order_id = Column(Integer, ForeignKey("work_orders.id"), nullable=False)
+    token_hash = Column(String(128), nullable=False, unique=True, index=True)
+    scope = Column(String(40), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    quote_id = Column(Integer, ForeignKey("work_order_quotes.id"), nullable=True)
+    interest_id = Column(Integer, ForeignKey("work_order_interests.id"), nullable=True)
+    is_active = Column(Boolean, nullable=False, server_default=text("true"))
+    used_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False)
 
 
 class Expense(Base):

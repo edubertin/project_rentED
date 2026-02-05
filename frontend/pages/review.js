@@ -79,31 +79,35 @@ export default function Review() {
           </div>
           <span className="pill">{documents.length} files</span>
         </div>
-        {documents.length === 0 && <p className="muted">No documents yet.</p>}
-        {documents.map((doc) => (
-          <div key={doc.id} className="log-row">
-            <div>
-              <div className="log-title">{doc.extras?.name || `document-${doc.id}`}</div>
-              <div className="log-meta">
-                {doc.property_id && (
-                  <span>
-                    {doc.extras?.property_tag || "Property"} #{doc.property_id}
-                  </span>
-                )}
+        <div className="files-scroll">
+          {documents.length === 0 && <p className="muted">No documents yet.</p>}
+          <div className="files-grid">
+            {documents.map((doc) => (
+              <div key={doc.id} className="file-card">
+                <div>
+                  <div className="log-title">{doc.extras?.name || `document-${doc.id}`}</div>
+                  <div className="log-meta">
+                    {doc.property_id && (
+                      <span>
+                        {doc.extras?.property_tag || "Property"} #{doc.property_id}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="file-actions">
+                  <a
+                    href={buildDocumentUrl(doc)}
+                    className="btn-link"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open
+                  </a>
+                </div>
               </div>
-            </div>
-            <div className="log-time">
-              <a
-                href={buildDocumentUrl(doc)}
-                className="btn-link"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open
-              </a>
-            </div>
+            ))}
           </div>
-        ))}
+        </div>
       </div>
     </div>
   );

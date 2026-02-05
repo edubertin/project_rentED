@@ -24,6 +24,12 @@ export default function PropertiesPage() {
   const [editRentedLoading, setEditRentedLoading] = useState(false);
   const [editRentedApplied, setEditRentedApplied] = useState(false);
   const [confirmOverwriteOpen, setConfirmOverwriteOpen] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [showRentedOnly, setShowRentedOnly] = useState(false);
+  const [userDetailsOpen, setUserDetailsOpen] = useState(false);
+  const [userDetails, setUserDetails] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [form, setForm] = useState({
     tag: "",
     is_rented: false,
@@ -774,6 +780,14 @@ export default function PropertiesPage() {
     }
   }
 
+  function requestDelete(property) {
+    setDeleteTarget({
+      id: property.id,
+      label: property.extras?.tag || property.extras?.label || `Property #${property.id}`,
+    });
+    setConfirmDeleteOpen(true);
+  }
+
   async function removeProperty(id) {
     setError("");
     try {
@@ -784,6 +798,14 @@ export default function PropertiesPage() {
     }
   }
 
+  async function confirmDelete() {
+    if (!deleteTarget?.id) return;
+    setConfirmDeleteOpen(false);
+    const targetId = deleteTarget.id;
+    setDeleteTarget(null);
+    await removeProperty(targetId);
+  }
+
   const selectedOwner =
     currentUser?.role === "admin"
       ? owners.find((owner) => String(owner.id) === String(ownerUserId))
@@ -792,6 +814,46 @@ export default function PropertiesPage() {
     currentUser?.role === "admin"
       ? owners.find((owner) => String(owner.id) === String(editOwnerId))
       : currentUser;
+
+  function openUserDetails(user) {
+    if (!user) return;
+    setUserDetails(user);
+    setUserDetailsOpen(true);
+  }
+
+  const rentSummary = properties.reduce(
+    (acc, prop) => {
+      const extras = prop.extras || {};
+      const isRented =
+        extras.is_rented === true ||
+        extras.is_rented === "true" ||
+        extras.rented === true ||
+        extras.rented === "true";
+      if (!isRented) return acc;
+      const value = Number(extras.current_rent_value || 0);
+      if (!value) return acc;
+      const currency = extras.rent_currency || "BRL";
+      acc[currency] = (acc[currency] || 0) + value;
+      return acc;
+    },
+    {}
+  );
+
+  const rentEntries = Object.entries(rentSummary);
+
+  function formatSummary(entries) {
+    if (!entries.length) return "—";
+    return entries
+      .map(([currency, cents]) => formatFromCents(Number(cents), currency))
+      .join(" • ");
+  }
+
+  function renderRentSummary() {
+    return {
+      label: "Monthly rent",
+      value: formatSummary(rentEntries),
+    };
+  }
 
   const rentedSpan2Fields = new Set([
     "tenant_address",
@@ -859,11 +921,26 @@ export default function PropertiesPage() {
     });
   }
 
+  const filteredProperties = properties.filter((p) => {
+    if (showRentedOnly && !p.extras?.is_rented) return false;
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    const extras = p.extras || {};
+    const tag = String(extras.tag || extras.label || "").toLowerCase();
+    const address = String(extras.property_address || "").toLowerCase();
+    const ownerName = String(extras.owner_name || "").toLowerCase();
+    return tag.includes(query) || address.includes(query) || ownerName.includes(query);
+  });
+
   return (
     <div className="container">
       <TopNav />
 
-      <div className="card">
+      <div className="card-wrap">
+        <button className="fab-create" type="button" onClick={openCreate} aria-label="Create Property">
+          <span>+</span>
+        </button>
+        <div className="card card--properties">
         <div className="card-header">
           <div>
             <h2>Properties</h2>
@@ -872,28 +949,51 @@ export default function PropertiesPage() {
                 ? "Admins can view all properties."
                 : "Property owners only see properties assigned to them."}
             </p>
+            <div className="search-box">
+              <input
+                type="search"
+                placeholder="Search by tag, owner, or address..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
           </div>
-          <div className="actions">
-            <button className="btn-primary" onClick={openCreate}>Create Property</button>
+          <div className="header-controls">
+            <div className="card-summary">
+              <span className="summary-label">{renderRentSummary().label}</span>
+              <span className="summary-value">{renderRentSummary().value}</span>
+              <label className="toggle toggle-compact">
+                <input
+                  type="checkbox"
+                  checked={showRentedOnly}
+                  onChange={(e) => setShowRentedOnly(e.target.checked)}
+                />
+                <span className="toggle-slider" />
+                <span>Rented only</span>
+              </label>
+            </div>
           </div>
         </div>
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                {currentUser?.role === "admin" && <th>ID</th>}
-                <th>Photo</th>
-                <th>Properties</th>
-                {currentUser?.role === "admin" && <th>Owner ID</th>}
-                <th className="actions-head">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {properties.map((p) => {
-                const photos = p.extras?.photos || [];
-                const firstPhoto = photos[0]?.url;
-                return (
-                  <tr key={p.id}>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  {currentUser?.role === "admin" && <th>ID</th>}
+                  <th>Photo</th>
+                  <th>Properties</th>
+                  {currentUser?.role === "admin" && <th>Owner ID</th>}
+                  <th className="actions-head">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredProperties.map((p) => {
+                  const photos = p.extras?.photos || [];
+                  const firstPhoto = photos[0]?.url;
+                  const rowClass = p.extras?.is_rented
+                    ? "table-row rented-row"
+                    : "table-row";
+                  return (
+                  <tr key={p.id} className={rowClass} data-rented={p.extras?.is_rented ? "true" : "false"}>
                     {currentUser?.role === "admin" && <td>{p.id}</td>}
                     <td>
                       {firstPhoto ? (
@@ -913,35 +1013,54 @@ export default function PropertiesPage() {
                       )}
                     </td>
                     <td>
+                      {p.extras?.is_rented && <div className="rented-watermark">rented</div>}
+                      {!p.extras?.is_rented && (
+                        <div className="rented-watermark rented-watermark--available">available</div>
+                      )}
                       <Link href={`/properties/${p.id}`}>
                         {p.extras?.tag || p.extras?.label || "Property"}
                       </Link>
                     </td>
-                    {currentUser?.role === "admin" && <td>{p.owner_user_id}</td>}
-                    <td className="actions-cell">
-                      <div className="actions">
-                        <button className="btn-muted" onClick={() => openEdit(p)}>
-                          Edit
+                    {currentUser?.role === "admin" && (
+                      <td>
+                        <button
+                          type="button"
+                          className="btn-link"
+                          onClick={() =>
+                            openUserDetails(
+                              owners.find((owner) => owner.id === p.owner_user_id)
+                            )
+                          }
+                        >
+                          {p.owner_user_id}
                         </button>
-                        <button className="btn-danger" onClick={() => removeProperty(p.id)}>
-                          Delete
-                        </button>
-                      </div>
+                      </td>
+                    )}
+                      <td className="actions-cell">
+                        <div className="actions">
+                          <button className="btn-muted" onClick={() => openEdit(p)}>
+                            Edit
+                          </button>
+                          <button className="btn-danger" onClick={() => requestDelete(p)}>
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filteredProperties.length === 0 && (
+                  <tr>
+                    <td colSpan={currentUser?.role === "admin" ? 5 : 4} className="muted">
+                    No properties found.
                     </td>
                   </tr>
-                );
-              })}
-              {properties.length === 0 && (
-                <tr>
-                  <td colSpan={currentUser?.role === "admin" ? 5 : 4} className="muted">
-                    No properties yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {error && <p className="error">{error}</p>}
         </div>
-        {error && <p className="error">{error}</p>}
       </div>
       {modalOpen && (
         <div className="modal-overlay">
@@ -1617,6 +1736,77 @@ export default function PropertiesPage() {
               <button className="btn-muted" type="button" onClick={() => setConfirmOverwriteOpen(false)}>
                 Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirmDeleteOpen && (
+        <div className="modal-overlay" onClick={() => setConfirmDeleteOpen(false)}>
+          <div className="modal confirm-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Delete property?</h3>
+              <button className="btn-muted" onClick={() => setConfirmDeleteOpen(false)}>
+                Close
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>
+                This will permanently delete{" "}
+                <strong>{deleteTarget?.label || "this property"}</strong> and its
+                related data. This action cannot be undone.
+              </p>
+            </div>
+            <div className="modal-actions">
+              <button className="btn-danger" type="button" onClick={confirmDelete}>
+                Delete
+              </button>
+              <button className="btn-muted" type="button" onClick={() => setConfirmDeleteOpen(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {userDetailsOpen && userDetails && (
+        <div className="modal-overlay" onClick={() => setUserDetailsOpen(false)}>
+          <div className="modal user-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>User details</h3>
+              <button className="btn-muted" onClick={() => setUserDetailsOpen(false)}>
+                Close
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="detail-grid">
+                <div>
+                  <span className="detail-label">Name</span>
+                  <span className="detail-value">{userDetails.name}</span>
+                </div>
+                <div>
+                  <span className="detail-label">Username</span>
+                  <span className="detail-value">{userDetails.username}</span>
+                </div>
+                <div>
+                  <span className="detail-label">Role</span>
+                  <span className="detail-value">{userDetails.role}</span>
+                </div>
+                <div>
+                  <span className="detail-label">CPF</span>
+                  <span className="detail-value">{userDetails.cpf || "-"}</span>
+                </div>
+                <div>
+                  <span className="detail-label">Cell</span>
+                  <span className="detail-value">{userDetails.cell_number || "-"}</span>
+                </div>
+                <div>
+                  <span className="detail-label">User ID</span>
+                  <span className="detail-value">{userDetails.id}</span>
+                </div>
+                <div className="detail-span-2">
+                  <span className="detail-label">Email</span>
+                  <span className="detail-value">{userDetails.email || "-"}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>

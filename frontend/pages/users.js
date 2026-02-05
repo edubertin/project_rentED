@@ -44,6 +44,8 @@ export default function UsersPage() {
   const [modalMode, setModalMode] = useState("create");
   const [form, setForm] = useState(emptyForm);
   const [activeUserId, setActiveUserId] = useState(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailUser, setDetailUser] = useState(null);
 
   useEffect(() => {
     async function load() {
@@ -88,6 +90,11 @@ export default function UsersPage() {
     });
     setError("");
     setModalOpen(true);
+  }
+
+  function openDetails(user) {
+    setDetailUser(user);
+    setDetailOpen(true);
   }
 
   async function submitForm(event) {
@@ -214,7 +221,6 @@ export default function UsersPage() {
                   <th>Username</th>
                   <th>Name</th>
                   <th>Role</th>
-                  <th>Email</th>
                   <th>CPF</th>
                   <th>Cell</th>
                   <th>Actions</th>
@@ -229,7 +235,6 @@ export default function UsersPage() {
                     <td>
                       <span className="pill">{user.role}</span>
                     </td>
-                    <td>{user.email || "-"}</td>
                     <td>{user.cpf || "-"}</td>
                     <td>{user.cell_number}</td>
                     <td>
@@ -237,6 +242,9 @@ export default function UsersPage() {
                         <span className="muted">Protected</span>
                       ) : (
                         <div className="actions">
+                          <button className="btn-link" onClick={() => openDetails(user)}>
+                            View
+                          </button>
                           <button className="btn-muted" onClick={() => openEdit(user)}>
                             Edit
                           </button>
@@ -344,6 +352,50 @@ export default function UsersPage() {
               </div>
             </form>
             {error && <p className="error">{error}</p>}
+          </div>
+        </div>
+      )}
+      {detailOpen && detailUser && (
+        <div className="modal-overlay" onClick={() => setDetailOpen(false)}>
+          <div className="modal user-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>User details</h3>
+              <button className="btn-muted" onClick={() => setDetailOpen(false)}>
+                Close
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="detail-grid">
+                <div>
+                  <span className="detail-label">Name</span>
+                  <span className="detail-value">{detailUser.name}</span>
+                </div>
+                <div>
+                  <span className="detail-label">Username</span>
+                  <span className="detail-value">{detailUser.username}</span>
+                </div>
+                <div>
+                  <span className="detail-label">Role</span>
+                  <span className="detail-value">{detailUser.role}</span>
+                </div>
+                <div>
+                  <span className="detail-label">CPF</span>
+                  <span className="detail-value">{detailUser.cpf || "-"}</span>
+                </div>
+                <div>
+                  <span className="detail-label">Cell</span>
+                  <span className="detail-value">{detailUser.cell_number || "-"}</span>
+                </div>
+                <div>
+                  <span className="detail-label">User ID</span>
+                  <span className="detail-value">{detailUser.id}</span>
+                </div>
+                <div className="detail-span-2">
+                  <span className="detail-label">Email</span>
+                  <span className="detail-value">{detailUser.email || "-"}</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

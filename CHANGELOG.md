@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 ## [Unreleased]
 - TBD.
 
+## [0.2.1] - 2026-02-05
+- Implement Work Orders module with quote/fixed flows, admin approvals, and status transitions.
+- Add public provider portal with expiring token links and proof submission (Pix + photo).
+- Add work order delete endpoint with audit log events.
+- Introduce ADRs for portal design, status model, token hashing, proof requirements, and event logging.
+- Add seed_large script updates and dashboard UX improvements for work orders.
+
 ## [0.2.0] - 2026-02-04
 - Consolidate rental contract import into Create/Edit Property with LLM suggest/apply flow.
 - Add contract field overwrite confirmation and persist contract fields per property.

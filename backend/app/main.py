@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -27,6 +27,7 @@ from app.auth import (
 from app.deps import get_current_user, get_db, get_optional_user, require_admin
 from app.models import (
     ActivityLog,
+    DomainEvent,
     Document,
     DocumentExtraction,
     Property,
@@ -63,6 +64,7 @@ from app.schemas import (
     WorkOrderApproveQuote,
     WorkOrderPortalView,
     ActivityLogOut,
+    DomainEventOut,
 )
 from app.storage import get_upload_dir
 from app.worker import process_document_job
@@ -182,6 +184,11 @@ def _latest_proof(db: Session, work_order_id: int) -> WorkOrderProof | None:
 
 
 def _delete_work_order(db: Session, work_order_id: int) -> None:
+    db.execute(
+        update(WorkOrder)
+        .where(WorkOrder.id == work_order_id)
+        .values(assigned_interest_id=None)
+    )
     db.execute(delete(WorkOrderToken).where(WorkOrderToken.work_order_id == work_order_id))
     db.execute(delete(WorkOrderProof).where(WorkOrderProof.work_order_id == work_order_id))
     db.execute(delete(WorkOrderQuote).where(WorkOrderQuote.work_order_id == work_order_id))
@@ -405,7 +412,46 @@ def _log_activity(
     }
     if token_id is not None:
         payload["token_id"] = token_id
-    db.add(ActivityLog(user_id=user_id, extras=payload))
+    entity_type = extras.get("entity_type") or "activity"
+    entity_id = extras.get("entity_id")
+    if entity_id is None:
+        entity_id = (
+            extras.get("work_order_id")
+            or extras.get("property_id")
+            or extras.get("document_id")
+            or 0
+        )
+    _log_domain_event(
+        db,
+        event_type=event,
+        entity_type=entity_type,
+        entity_id=int(entity_id) if entity_id else 0,
+        actor_type=actor_type,
+        actor_id=user_id,
+        payload=payload,
+    )
+
+
+def _log_domain_event(
+    db: Session,
+    event_type: str,
+    entity_type: str,
+    entity_id: int,
+    actor_type: str,
+    actor_id: int | None,
+    payload: dict,
+) -> None:
+    db.add(
+        DomainEvent(
+            event_type=event_type,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            payload=payload,
+            created_at=datetime.now(timezone.utc),
+        )
+    )
 
 
 @app.get("/health")
@@ -995,6 +1041,17 @@ def list_activity_log(
     return db.execute(stmt).scalars().all()
 
 
+@app.get("/event-logs", response_model=list[DomainEventOut])
+def list_domain_events(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[DomainEventOut]:
+    stmt = select(DomainEvent).order_by(DomainEvent.id.desc()).limit(200)
+    if user.role != "admin":
+        stmt = stmt.where(DomainEvent.actor_id == user.id)
+    return db.execute(stmt).scalars().all()
+
+
 @app.get("/documents/{document_id}/download", include_in_schema=False)
 def download_document(
     document_id: int,
@@ -1417,12 +1474,12 @@ def cancel_work_order(
     return {"status": "ok"}
 
 
-@app.delete("/work-orders/{work_order_id}", status_code=204)
+@app.delete("/work-orders/{work_order_id}")
 def delete_work_order(
     work_order_id: int,
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
-) -> Response:
+) -> dict:
     work_order = db.get(WorkOrder, work_order_id)
     if work_order is None:
         raise HTTPException(status_code=404, detail="not_found")
@@ -1434,7 +1491,7 @@ def delete_work_order(
         user_id=user.id,
     )
     db.commit()
-    return Response(status_code=204)
+    return {"status": "deleted", "id": work_order_id}
 
 
 @app.get("/portal/work-orders/{token}", response_model=WorkOrderPortalView)

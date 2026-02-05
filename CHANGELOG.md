@@ -4,7 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog], and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
-- TBD.
+- Refresh top navigation with sliding indicator, mobile drawer, and scroll effects.
+- Refactor Properties list with kebab actions, mobile cards, and status badges.
+- Unify Work Orders toolbar (search + filters + CTA) and empty state UX.
+- Fix Work Order delete flow (clear assigned interest before delete).
+- Add seed_real_photos script to generate properties with real images and work orders.
+- Document deferred Next.js security upgrade in README.
 
 ## [0.2.1] - 2026-02-05
 - Implement Work Orders module with quote/fixed flows, admin approvals, and status transitions.

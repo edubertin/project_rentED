@@ -221,6 +221,19 @@ class ActivityLog(Base):
     extras = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
 
 
+class DomainEvent(Base):
+    __tablename__ = "domain_events"
+
+    id = Column(Integer, primary_key=True)
+    event_type = Column(String(80), nullable=False)
+    entity_type = Column(String(80), nullable=False)
+    entity_id = Column(Integer, nullable=False)
+    actor_type = Column(String(40), nullable=False)
+    actor_id = Column(Integer, nullable=True)
+    payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at = Column(DateTime(timezone=True), nullable=False)
+
+
 class Session(Base):
     __tablename__ = "sessions"
 

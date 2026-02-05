@@ -8,9 +8,10 @@ export default function Review() {
   const router = useRouter();
   const [activityLog, setActivityLog] = useState([]);
   const [documents, setDocuments] = useState([]);
+  const [selectedDate, setSelectedDate] = useState("all");
 
   async function load() {
-    const logs = await apiGet("/activity-log");
+    const logs = await apiGet("/event-logs");
     setActivityLog(logs);
     const docs = await apiGet("/documents");
     setDocuments(docs);
@@ -26,7 +27,7 @@ export default function Review() {
   }, [router]);
 
   function formatEvent(event) {
-    return String(event || "event").replace(/_/g, " ");
+    return String(event || "event").replace(/_/g, " ").toUpperCase();
   }
 
   function formatTime(value) {
@@ -35,6 +36,22 @@ export default function Review() {
     if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleString();
   }
+
+  function formatDateKey(value) {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toISOString().slice(0, 10);
+  }
+
+  const dateOptions = Array.from(
+    new Set(activityLog.map((item) => formatDateKey(item.extras?.timestamp)).filter(Boolean))
+  ).sort((a, b) => (a < b ? 1 : -1));
+
+  const filteredEvents =
+    selectedDate === "all"
+      ? activityLog
+      : activityLog.filter((item) => formatDateKey(item.extras?.timestamp) === selectedDate);
 
   function buildDocumentUrl(doc) {
     if (!doc?.id) return "";
@@ -45,28 +62,40 @@ export default function Review() {
     <div className="container">
       <TopNav />
 
-      <h1>Review</h1>
+      <h1>Docs/Logs</h1>
       <div className="card log-card">
         <div className="log-header">
           <div>
-            <h3>Activity Log</h3>
-            <p className="muted">All actions recorded for audit and review.</p>
+            <h3>Event Logs</h3>
+            <p className="muted">Structured business events for audit and timeline review.</p>
           </div>
-          <span className="pill">{activityLog.length} events</span>
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <select value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)}>
+              <option value="all">All dates</option>
+              {dateOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+            <span className="pill">{filteredEvents.length} events</span>
+          </div>
         </div>
         <div className="log-scroll">
-          {activityLog.length === 0 && <p className="muted">No recent activity.</p>}
-          {activityLog.map((item) => (
+          {filteredEvents.length === 0 && <p className="muted">No events for this date.</p>}
+          {filteredEvents.map((item) => (
             <div key={item.id} className="log-row">
               <div>
-                <div className="log-title">{formatEvent(item.extras?.event)}</div>
+                <div className="log-title">{formatEvent(item.event_type)}</div>
                 <div className="log-meta">
-                  {item.extras?.property_id && <span>Property #{item.extras.property_id}</span>}
-                  {item.extras?.document_id && <span>Doc #{item.extras.document_id}</span>}
-                  {item.extras?.username && <span>{item.extras.username}</span>}
+                  {item.entity_type && item.entity_id ? (
+                    <span className="pill">{item.entity_type} #{item.entity_id}</span>
+                  ) : null}
+                  {item.actor_type && <span className="pill">{item.actor_type}</span>}
+                  <span className="pill">id #{item.id}</span>
                 </div>
               </div>
-              <div className="log-time">{formatTime(item.extras?.timestamp)}</div>
+              <div className="log-time">{formatTime(item.created_at)}</div>
             </div>
           ))}
         </div>

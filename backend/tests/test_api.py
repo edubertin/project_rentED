@@ -264,7 +264,7 @@ def test_work_order_delete():
     ).json()
     work_order_id = created["work_order"]["id"]
     resp = client.delete(f"/work-orders/{work_order_id}")
-    assert resp.status_code == 204
+    assert resp.status_code == 200
     _cleanup_by_username(username)
 
 
@@ -433,3 +433,15 @@ def test_admin_create_user_and_delete():
     assert delete_resp.status_code == 204
     _cleanup_by_username(admin_username)
     _cleanup_test_admins()
+
+
+def test_event_logs_endpoint():
+    admin_username = f"admin{uuid.uuid4().hex[:8]}"
+    admin_password = "Admin12345!"
+    _create_user("admin", username=admin_username, password=admin_password)
+    _login(admin_username, admin_password)
+
+    resp = client.get("/event-logs")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+    _cleanup_by_username(admin_username)

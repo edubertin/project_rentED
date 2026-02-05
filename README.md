@@ -289,6 +289,8 @@ docker compose run --rm api pytest
 - Uploads are stored locally in `./data/uploads` (bind-mounted).
 - Do not commit `.env` or API keys.
 - Exposed ports are for local dev only; lock them down in production.
+- Frontend dev dependency audit: Next.js has known DoS advisories. We are deferring a major upgrade
+  to Next 16.x to avoid breaking changes. Track and upgrade once the frontend migration is planned.
 
 ---
 

@@ -34,3 +34,6 @@ node_modules/
 
 # Personal references (local only)
 personal_notes/
+
+# Sensitive samples
+samples/contracts/

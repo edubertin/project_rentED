@@ -24,13 +24,12 @@ contract data, and keeps owners, documents, and event logs organized for ongoing
 7. Database Migrations
 8. Seed Data
 9. Key Workflows
-10. Sample Contracts for Testing
-11. Architecture Decisions (ADRs)
-12. Dashboard Docs and Swagger
-13. Testing
-14. Security Notes
-15. Contributing
-16. License
+10. Architecture Decisions (ADRs)
+11. Dashboard Docs and Swagger
+12. Testing
+13. Security Notes
+14. Contributing
+15. License
 
 ---
 
@@ -255,32 +254,21 @@ is generated when a provider is selected for fixed offers.
 
 ---
 
-## 10. Sample Contracts for Testing
-Sample contract PDF for local testing:
-- `samples/contracts/ms_imoveis_avalyst_contract_sample.pdf`
-
-Suggested flow:
-1. Create Property -> enable **Rented**.
-2. Upload the sample contract and review suggested fields.
-3. Apply fields, add required photos, then save.
-
----
-
-## 11. Architecture Decisions (ADRs)
+## 10. Architecture Decisions (ADRs)
 See `docs/adr/` for the decision records covering the provider portal, status model,
 token hashing, temporary provider identity, proof requirements, event logging, and
 dashboard maps.
 
 ---
 
-## 12. Dashboard Docs and Swagger
+## 11. Dashboard Docs and Swagger
 - `/docs` provides a custom interactive dashboard.
 - `/swagger` provides full OpenAPI schemas.
 - `/openapi.json` returns raw OpenAPI JSON.
 
 ---
 
-## 13. Testing
+## 12. Testing
 Run tests inside the container:
 ```
 docker compose run --rm api pytest
@@ -288,7 +276,7 @@ docker compose run --rm api pytest
 
 ---
 
-## 14. Security Notes
+## 13. Security Notes
 - All CRUD endpoints require a session cookie.
 - Admin accounts cannot be deleted via the API.
 - Uploads are stored locally in `./data/uploads` (bind-mounted).
@@ -299,10 +287,10 @@ docker compose run --rm api pytest
 
 ---
 
-## 15. Contributing
+## 14. Contributing
 See `CONTRIBUTING.md` for the workflow and standards.
 
 ---
 
-## 16. License
+## 15. License
 MIT. See `LICENSE` for details.

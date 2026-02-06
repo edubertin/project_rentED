@@ -9,6 +9,7 @@ export default function Review() {
   const [activityLog, setActivityLog] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [selectedDate, setSelectedDate] = useState("all");
+  const [currentUser, setCurrentUser] = useState(null);
 
   async function load() {
     const logs = await apiGet("/event-logs");
@@ -21,6 +22,7 @@ export default function Review() {
     (async () => {
       const user = await requireAuth(router);
       if (user) {
+        setCurrentUser(user);
         load();
       }
     })();
@@ -48,10 +50,14 @@ export default function Review() {
     new Set(activityLog.map((item) => formatDateKey(item.extras?.timestamp)).filter(Boolean))
   ).sort((a, b) => (a < b ? 1 : -1));
 
+  const scopedEvents = currentUser?.role === "admin"
+    ? activityLog
+    : activityLog.filter((item) => item.actor_id === currentUser?.id);
+
   const filteredEvents =
     selectedDate === "all"
-      ? activityLog
-      : activityLog.filter((item) => formatDateKey(item.extras?.timestamp) === selectedDate);
+      ? scopedEvents
+      : scopedEvents.filter((item) => formatDateKey(item.extras?.timestamp) === selectedDate);
 
   function buildDocumentUrl(doc) {
     if (!doc?.id) return "";
@@ -62,7 +68,7 @@ export default function Review() {
     <div className="container">
       <TopNav />
 
-      <h1>Docs/Logs</h1>
+      <div />
       <div className="card log-card">
         <div className="log-header">
           <div>

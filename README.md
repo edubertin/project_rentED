@@ -10,7 +10,7 @@
 
 rentED is a property management platform that combines a FastAPI backend and a Next.js dashboard
 with AI-assisted rental contract ingestion. It streamlines property onboarding, captures structured
-contract data, and keeps owners, documents, and activity logs organized for ongoing operations.
+contract data, and keeps owners, documents, and event logs organized for ongoing operations.
 
 ---
 
@@ -40,7 +40,8 @@ rentED focuses on clean contracts, strict ownership rules, and fast onboarding:
 - Owner-aware access control (admin sees all, owners see only theirs)
 - Contract-driven prefill via LLM suggestions
 - Documents linked to properties with download access
-- Activity log per user (admin sees all)
+- Domain event log with admin/user scoping
+- Dashboard highlight view with OpenStreetMap + Leaflet
 
 Suggested GitHub Topics (SaaS-standard):
 `saas`, `proptech`, `fastapi`, `nextjs`, `postgres`, `redis`, `rq`, `ai`, `llm`, `openai`
@@ -58,6 +59,7 @@ Suggested GitHub Topics (SaaS-standard):
 - Work orders module (quote + fixed offer)
 - Provider portal with expirable token links
 - Alembic migrations and Docker-first setup
+- Dashboard map (OpenStreetMap + Leaflet)
 
 ---
 
@@ -70,6 +72,7 @@ Suggested GitHub Topics (SaaS-standard):
 - LangChain (OpenAI)
 - pypdf + optional OCR
 - passlib (bcrypt)
+- Leaflet + OpenStreetMap (dashboard map)
 - Docker Compose
 - Next.js
 
@@ -116,6 +119,7 @@ docs/
     0005-temporary-provider-identity.md
     0006-reuse-documents-storage.md
     0007-domain-event-log.md
+    0008-dashboard-maps-openstreetmap.md
 
 docker-compose.yml
 .env.example
@@ -224,8 +228,8 @@ The contract document is stored and linked to the property automatically.
 - List: `GET /documents?property_id=...`
 - Download: `GET /documents/{id}/download`
 
-### 9.4 Activity Log
-- `GET /activity-log`
+### 9.4 Event Logs
+- `GET /event-logs`
 - Admin sees all entries, other users see only their own.
 
 ### 9.5 Work Orders
@@ -264,7 +268,8 @@ Suggested flow:
 
 ## 11. Architecture Decisions (ADRs)
 See `docs/adr/` for the decision records covering the provider portal, status model,
-token hashing, temporary provider identity, proof requirements, and event logging.
+token hashing, temporary provider identity, proof requirements, event logging, and
+dashboard maps.
 
 ---
 

@@ -9,8 +9,15 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "leaflet": "^1.9.4",
     "next": "14.2.35",
     "react": "18.3.1",
-    "react-dom": "18.3.1"
+    "react-dom": "18.3.1",
+    "react-leaflet": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "25.2.0",
+    "@types/react": "19.2.11",
+    "typescript": "5.9.3"
   }
 }

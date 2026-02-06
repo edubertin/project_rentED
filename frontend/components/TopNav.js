@@ -50,6 +50,7 @@ export default function TopNav() {
   }
 
   const isActive = (path) => {
+    if (path === "/dashboard") return router.pathname.startsWith("/dashboard");
     if (path === "/properties") return router.pathname.startsWith("/properties");
     if (path === "/work-orders") return router.pathname.startsWith("/work-orders");
     if (path === "/docs-logs") return router.pathname.startsWith("/docs-logs") || router.pathname === "/review";
@@ -57,6 +58,7 @@ export default function TopNav() {
   };
 
   const links = [
+    { href: "/dashboard", label: "Dashboard" },
     { href: "/properties", label: "Properties" },
     { href: "/work-orders", label: "Work Orders" },
     { href: "/docs-logs", label: "Docs/Logs" },

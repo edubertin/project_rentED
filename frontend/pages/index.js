@@ -13,7 +13,7 @@ export default function LoginPage() {
     async function check() {
       const user = await getCurrentUser();
       if (user) {
-        router.push("/properties");
+        router.push("/dashboard");
       }
     }
     check();
@@ -24,7 +24,7 @@ export default function LoginPage() {
     setError("");
     try {
       await login(username, password);
-      router.push("/properties");
+      router.push("/dashboard");
     } catch (err) {
       setError("Invalid username or password");
     }

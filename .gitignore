@@ -17,6 +17,7 @@ Thumbs.db
 
 # Docker
 **/data/uploads/
+**/data/seed_photos/
 
 # IDE
 .vscode/

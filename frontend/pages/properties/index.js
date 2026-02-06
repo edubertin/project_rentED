@@ -8,6 +8,7 @@ import { requireAuth } from "../../lib/auth";
 export default function PropertiesPage() {
   const router = useRouter();
   const [properties, setProperties] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   const [owners, setOwners] = useState([]);
   const [photoPreview, setPhotoPreview] = useState("");
@@ -30,6 +31,8 @@ export default function PropertiesPage() {
   const [userDetailsOpen, setUserDetailsOpen] = useState(false);
   const [userDetails, setUserDetails] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [menuOpenId, setMenuOpenId] = useState(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [form, setForm] = useState({
     tag: "",
     is_rented: false,
@@ -153,11 +156,14 @@ export default function PropertiesPage() {
 
   async function load() {
     setError("");
+    setLoading(true);
     try {
       const data = await apiGet("/properties");
       setProperties(data);
     } catch (err) {
       setError(err.message || "Failed to load properties");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -178,6 +184,36 @@ export default function PropertiesPage() {
       }
     })();
   }, [router]);
+
+  useEffect(() => {
+    if (!menuOpenId) return;
+    function handleClick(event) {
+      if (event.target.closest(".kebab-menu") || event.target.closest(".kebab-trigger")) return;
+      setMenuOpenId(null);
+    }
+    function handleKey(event) {
+      if (event.key === "Escape") setMenuOpenId(null);
+    }
+    document.addEventListener("mousedown", handleClick);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      window.removeEventListener("keydown", handleKey);
+    };
+  }, [menuOpenId]);
+
+  useEffect(() => {
+    if (!filtersOpen) return;
+    function handleKey(event) {
+      if (event.key === "Escape") setFiltersOpen(false);
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [filtersOpen]);
+
+  function toggleMenu(propertyId) {
+    setMenuOpenId((current) => (current === propertyId ? null : propertyId));
+  }
 
   function openCreate() {
     setModalMode("create");
@@ -937,61 +973,112 @@ export default function PropertiesPage() {
       <TopNav />
 
       <div className="card-wrap">
-        <button className="fab-create" type="button" onClick={openCreate} aria-label="Create Property">
-          <span>+</span>
-        </button>
         <div className="card card--properties">
-        <div className="card-header">
-          <div>
+        <div className="card-header properties-header">
+          <div className="properties-header-main">
             <h2>Properties</h2>
             <p className="muted">
               {currentUser?.role === "admin"
                 ? "Admins can view all properties."
                 : "Property owners only see properties assigned to them."}
             </p>
-            <div className="search-box">
+          </div>
+        </div>
+        <div className="properties-toolbar">
+          <div className="wo-toolbar">
+            <div className="wo-search">
+              <label className="sr-only" htmlFor="properties-search">Search</label>
               <input
+                id="properties-search"
                 type="search"
                 placeholder="Search by tag, owner, or address..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-          </div>
-          <div className="header-controls">
-            <div className="card-summary">
-              <span className="summary-label">{renderRentSummary().label}</span>
-              <span className="summary-value">{renderRentSummary().value}</span>
-              <label className="toggle toggle-compact">
-                <input
-                  type="checkbox"
-                  checked={showRentedOnly}
-                  onChange={(e) => setShowRentedOnly(e.target.checked)}
-                />
-                <span className="toggle-slider" />
-                <span>Rented only</span>
-              </label>
+            <div className="wo-toolbar-actions">
+              <button className="wo-filters-btn" onClick={() => setFiltersOpen(true)} aria-label="Open filters">
+                Filters
+                {showRentedOnly && <span className="wo-filters-count">1</span>}
+              </button>
+              <button className="btn-primary wo-create-btn" onClick={openCreate}>
+                Create Property
+              </button>
             </div>
           </div>
         </div>
-          <div className="table-wrap">
+        {filtersOpen && (
+          <div className="wo-filters-overlay" onClick={() => setFiltersOpen(false)}>
+            <div
+              className="wo-filters-panel"
+              onClick={(event) => event.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+            >
+              <div className="wo-filters-header">
+                <div>
+                  <h3>Filters</h3>
+                  <p className="muted">Filter properties by status.</p>
+                </div>
+                <button onClick={() => setFiltersOpen(false)}>Close</button>
+              </div>
+              <div className="form-grid">
+                <div className="form-span-2">
+                  <label className="toggle">
+                    <input
+                      type="checkbox"
+                      checked={showRentedOnly}
+                      onChange={(e) => setShowRentedOnly(e.target.checked)}
+                    />
+                    <span className="toggle-slider" />
+                    <span>Rented only</span>
+                  </label>
+                </div>
+              </div>
+              <div className="wo-filters-actions">
+                <button
+                  className="btn-muted"
+                  onClick={() => {
+                    setShowRentedOnly(false);
+                    setSearchQuery("");
+                  }}
+                >
+                  Reset
+                </button>
+                <button className="btn-primary" onClick={() => setFiltersOpen(false)}>Done</button>
+              </div>
+            </div>
+          </div>
+        )}
+          <div className="table-wrap property-table">
             <table className="table">
               <thead>
                 <tr>
                   {currentUser?.role === "admin" && <th>ID</th>}
                   <th>Photo</th>
                   <th>Properties</th>
+                  <th>Status</th>
                   {currentUser?.role === "admin" && <th>Owner ID</th>}
                   <th className="actions-head">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredProperties.map((p) => {
+                {loading && (
+                  Array.from({ length: 3 }).map((_, index) => (
+                    <tr key={`skeleton-${index}`} className="table-row">
+                      <td colSpan={currentUser?.role === "admin" ? 6 : 4}>
+                        <div className="skeleton-line" />
+                      </td>
+                    </tr>
+                  ))
+                )}
+                {!loading && filteredProperties.map((p) => {
                   const photos = p.extras?.photos || [];
                   const firstPhoto = photos[0]?.url;
+                  const isMenuOpen = menuOpenId === p.id;
                   const rowClass = p.extras?.is_rented
-                    ? "table-row rented-row"
-                    : "table-row";
+                    ? `table-row rented-row${isMenuOpen ? " table-row--active" : ""}`
+                    : `table-row${isMenuOpen ? " table-row--active" : ""}`;
                   return (
                   <tr key={p.id} className={rowClass} data-rented={p.extras?.is_rented ? "true" : "false"}>
                     {currentUser?.role === "admin" && <td>{p.id}</td>}
@@ -1013,13 +1100,21 @@ export default function PropertiesPage() {
                       )}
                     </td>
                     <td>
-                      {p.extras?.is_rented && <div className="rented-watermark">rented</div>}
+                      {p.extras?.is_rented && <div className="rented-watermark desktop-only">rented</div>}
                       {!p.extras?.is_rented && (
-                        <div className="rented-watermark rented-watermark--available">available</div>
+                        <div className="rented-watermark rented-watermark--available desktop-only">available</div>
                       )}
                       <Link href={`/properties/${p.id}`}>
                         {p.extras?.tag || p.extras?.label || "Property"}
                       </Link>
+                      {p.extras?.property_address && (
+                        <div className="property-subline">{p.extras.property_address}</div>
+                      )}
+                    </td>
+                    <td>
+                      <span className={`status-badge ${p.extras?.is_rented ? "is-rented" : "is-available"}`}>
+                        {p.extras?.is_rented ? "RENTED" : "AVAILABLE"}
+                      </span>
                     </td>
                     {currentUser?.role === "admin" && (
                       <td>
@@ -1037,27 +1132,120 @@ export default function PropertiesPage() {
                       </td>
                     )}
                       <td className="actions-cell">
-                        <div className="actions">
-                          <button className="btn-muted" onClick={() => openEdit(p)}>
-                            Edit
+                        <div className="kebab">
+                          <button
+                            className="kebab-trigger"
+                            type="button"
+                            aria-label="Open actions"
+                            onClick={() => toggleMenu(p.id)}
+                          >
+                            ⋯
                           </button>
-                          <button className="btn-danger" onClick={() => requestDelete(p)}>
-                            Delete
-                          </button>
+                          {menuOpenId === p.id && (
+                            <div className="kebab-menu">
+                              <button type="button" onClick={() => { openEdit(p); setMenuOpenId(null); }}>
+                                Edit
+                              </button>
+                              <button className="danger" type="button" onClick={() => { requestDelete(p); setMenuOpenId(null); }}>
+                                Delete
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </td>
                     </tr>
                   );
                 })}
-                {filteredProperties.length === 0 && (
+                {!loading && filteredProperties.length === 0 && (
                   <tr>
-                    <td colSpan={currentUser?.role === "admin" ? 5 : 4} className="muted">
+                    <td colSpan={currentUser?.role === "admin" ? 6 : 4} className="muted">
                     No properties found.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
+          </div>
+          {!loading && filteredProperties.length === 0 && (
+            <div className="property-cards-empty mobile-only">No properties found.</div>
+          )}
+          <div className="property-cards mobile-only">
+            {loading && (
+              Array.from({ length: 3 }).map((_, index) => (
+                <div key={`card-skeleton-${index}`} className="property-card skeleton-card">
+                  <div className="skeleton-thumb" />
+                  <div className="skeleton-lines">
+                    <div className="skeleton-line" />
+                    <div className="skeleton-line short" />
+                  </div>
+                </div>
+              ))
+            )}
+            {!loading && filteredProperties.map((p) => {
+              const photos = p.extras?.photos || [];
+              const firstPhoto = photos[0]?.url;
+              return (
+                <div key={p.id} className="property-card">
+                  <button
+                    type="button"
+                    className="property-card-thumb"
+                    onClick={() => firstPhoto && setPhotoPreview(`${API_BASE}${firstPhoto}`)}
+                    aria-label="Open property photo"
+                  >
+                    {firstPhoto ? (
+                      <img src={`${API_BASE}${firstPhoto}`} alt={p.extras?.tag || "Property"} />
+                    ) : (
+                      <div className="property-thumb-empty">No photo</div>
+                    )}
+                  </button>
+                  <div className="property-card-body">
+                    <div className="property-card-header">
+                      <div>
+                        <div className="property-card-title">
+                          {p.extras?.tag || p.extras?.label || "Property"}
+                        </div>
+                        <span className={`status-badge ${p.extras?.is_rented ? "is-rented" : "is-available"}`}>
+                          {p.extras?.is_rented ? "RENTED" : "AVAILABLE"}
+                        </span>
+                      </div>
+                      <div className="kebab">
+                        <button
+                          className="kebab-trigger"
+                          type="button"
+                          aria-label="Open actions"
+                          onClick={() => toggleMenu(p.id)}
+                        >
+                          ⋯
+                        </button>
+                        {menuOpenId === p.id && (
+                          <div className="kebab-menu">
+                            <button type="button" onClick={() => { openEdit(p); setMenuOpenId(null); }}>
+                              Edit
+                            </button>
+                            <button className="danger" type="button" onClick={() => { requestDelete(p); setMenuOpenId(null); }}>
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {p.extras?.property_address && (
+                      <button
+                        type="button"
+                        className="property-card-subline"
+                        onClick={() => firstPhoto && setPhotoPreview(`${API_BASE}${firstPhoto}`)}
+                        aria-label="Open property photo"
+                      >
+                        {p.extras.property_address}
+                      </button>
+                    )}
+                    {currentUser?.role === "admin" && (
+                      <span className="owner-chip">Owner #{p.owner_user_id}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
           {error && <p className="error">{error}</p>}
         </div>

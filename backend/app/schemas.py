@@ -201,6 +201,18 @@ class ActivityLogOut(BaseModel):
     extras: Dict[str, Any]
 
 
+class DomainEventOut(BaseModel):
+    id: int
+    event_type: str
+    entity_type: str
+    entity_id: int
+    actor_type: str
+    actor_id: int | None = None
+    payload: Dict[str, Any]
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
 class DocumentProcessResponse(BaseModel):
     id: int
     status: str
